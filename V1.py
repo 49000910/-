@@ -6,17 +6,14 @@ import sys
 import tkinter as tk
 from tkinter import messagebox, ttk
 import ctypes
-from pynput import keyboard
 from pynput.keyboard import Controller, Key
 
 # --- 核心配置 ---
 HISTORY_FILE = "barcode_history.txt"
 BARCODE_HISTORY = set()
-SCAN_BUFFER = []
-LAST_KEY_TIME = 0
-SCAN_SPEED_THRESHOLD = 0.05 
 kb_controller = Controller()
 
+# 加载历史记录
 if os.path.exists(HISTORY_FILE):
     try:
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
@@ -35,16 +32,10 @@ class UltimateMiniGuard:
         
         self.clr_default_bg = "#f0f0f0"
         self.clr_head_normal = "#90ee90" 
-        self.clr_ok_static = "#2ecc71"
-        self.clr_dup_red = "#ff0000"
-        self.clr_dup_yellow = "#ffff00"
         self.clr_log_normal = "#ffffff" 
-        
-        self.flash_timer = None
-        self.is_flashing = False 
-        self.current_state_color = self.clr_default_bg
         self.root.configure(bg=self.clr_default_bg)
 
+        # --- 顶部工具栏 ---
         params_f = tk.Frame(self.root, bg=self.clr_head_normal, pady=3)
         params_f.pack(fill=tk.X)
         
@@ -75,9 +66,9 @@ class UltimateMiniGuard:
 
         tk.Button(params_f, text="批量", command=self.pop_preview_window, bg="#e1e1e1", font=("微软雅黑", 8)).pack(side=tk.RIGHT, padx=5)
 
+        # --- 日志显示 ---
         self.log_text = tk.Text(self.root, font=("Consolas", 9), bg=self.clr_log_normal, height=10, bd=1)
         self.log_text.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
-        self.log_text.tag_config("dup", background="#ffb2b2", foreground="#b22222")
         self.log_text.tag_config("auto", foreground="#0000ff") 
 
         self.info_lbl = tk.Label(self.root, text=f"Total: {len(BARCODE_HISTORY)}", font=("微软雅黑", 8), bg=self.clr_default_bg)
@@ -85,228 +76,106 @@ class UltimateMiniGuard:
 
     def get_clipboard_text(self):
         try:
-            if ctypes.windll.user32.OpenClipboard(0):
-                handle = ctypes.windll.user32.GetClipboardData(13)
-                if handle:
-                    ptr = ctypes.windll.kernel32.GlobalLock(handle)
-                    text = ctypes.c_wchar_p(ptr).value
-                    ctypes.windll.kernel32.GlobalUnlock(handle)
-                    ctypes.windll.user32.CloseClipboard()
-                    return str(text) if text else ""
-                ctypes.windll.user32.CloseClipboard()
-        except:
-            pass
-        try:
             return self.root.clipboard_get()
         except:
             return ""
 
     def pop_preview_window(self):
         raw_text = self.get_clipboard_text()
-        if not raw_text or not str(raw_text).strip():
+        if not raw_text.strip():
             messagebox.showinfo("提示", "剪贴板内容为空")
             return
         
-        try:
-            lines = sorted([s.strip() for s in str(raw_text).replace('\r\n', '\n').split('\n') if s.strip()])
-            if not lines: return
+        lines = sorted(list(set([s.strip() for s in raw_text.splitlines() if s.strip()])))
+        
+        self.pv = tk.Toplevel(self.root)
+        self.pv.title(f"预览: {len(lines)}条")
+        self.pv.geometry("400x400")
+        self.pv.attributes("-topmost", True)
+        
+        self.tree = ttk.Treeview(self.pv, columns=("check", "barcode"), show="headings")
+        self.tree.heading("check", text="状态")
+        self.tree.heading("barcode", text="条码内容")
+        self.tree.column("check", width=50, anchor="center")
+        self.tree.pack(fill=tk.BOTH, expand=True)
 
-            self.pv = tk.Toplevel(self.root)
-            self.pv.title(f"自动过站预览: {len(lines)}条")
-            self.pv.geometry("440x450")
-            self.pv.attributes("-topmost", True)
-            
-            self.tree = ttk.Treeview(self.pv, columns=("check", "barcode"), show="headings")
-            self.tree.heading("check", text="状态")
-            self.tree.heading("barcode", text="条码内容(已排序)")
-            self.tree.column("check", width=50, anchor="center")
-            self.tree.column("barcode", width=320)
-            self.tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        for s in lines:
+            self.tree.insert("", tk.END, values=("☐", s))
 
-            for s in lines:
-                self.tree.insert("", tk.END, values=("☐", s))
-
-            self.tree.bind("<ButtonRelease-1>", self.on_tree_click)
-            self.pv.bind("<Delete>", lambda e: self.delete_sel())
-
-            btn_f = tk.Frame(self.pv)
-            btn_f.pack(fill=tk.X, pady=5)
-            
-            tk.Button(btn_f, text="🗑️删除", command=self.delete_sel, font=("微软雅黑", 8)).pack(side=tk.LEFT, expand=True, padx=2)
-            tk.Button(btn_f, text="☑️全/反选", command=self.toggle_all, font=("微软雅黑", 8)).pack(side=tk.LEFT, expand=True, padx=2)
-            tk.Button(btn_f, text="🧹清空", command=self.clear_list, font=("微软雅黑", 8), fg="brown").pack(side=tk.LEFT, expand=True, padx=2)
-            tk.Button(btn_f, text="🚀启动过站", bg="#4caf50", fg="white", font=("微软雅黑", 9, "bold"),
-                      command=self.prepare_and_run).pack(side=tk.LEFT, expand=True, padx=2)
-        except Exception as e:
-            messagebox.showerror("错误", f"子窗口加载失败: {e}")
+        self.tree.bind("<ButtonRelease-1>", self.on_tree_click)
+        tk.Button(self.pv, text="🚀 开始批量录入", bg="#4caf50", fg="white", 
+                  command=self.prepare_and_run).pack(fill=tk.X, pady=5)
 
     def on_tree_click(self, event):
         item = self.tree.identify_row(event.y)
         if item:
-            cur_vals = list(self.tree.item(item, "values"))
-            new_status = "☑" if cur_vals[0] == "☐" else "☐"
-            self.tree.item(item, values=(new_status, cur_vals[1]))
-
-    def toggle_all(self):
-        children = self.tree.get_children()
-        if not children: return
-        first_item = self.tree.item(children[0], "values")
-        new_s = "☑" if first_item[0] == "☐" else "☐"
-        for i in children:
-            v = list(self.tree.item(i, "values"))
-            self.tree.item(i, values=(new_s, v[1]))
-
-    def delete_sel(self):
-        for i in self.tree.selection():
-            self.tree.delete(i)
-        self.pv.title(f"自动过站预览: {len(self.tree.get_children())}条")
-
-    def clear_list(self):
-        for i in self.tree.get_children():
-            self.tree.delete(i)
-        self.pv.title("自动过站预览: 0条")
+            val = list(self.tree.item(item, "values"))
+            val[0] = "☑" if val[0] == "☐" else "☐"
+            self.tree.item(item, values=val)
 
     def prepare_and_run(self):
-        # 核心修复：在主线程提取所有未勾选条码，脱离 Treeview 依赖
-        to_run = []
-        for i in self.tree.get_children():
-            v = self.tree.item(i, "values")
-            if v[0] == "☐": # 只录入未打叉项
-                to_run.append(v[1])
-        
+        # 提取未打叉的项目
+        to_run = [self.tree.item(i, "values")[1] for i in self.tree.get_children() if self.tree.item(i, "values")[0] == "☐"]
         if to_run:
-            self.pv.destroy() # 运行前关闭预览窗，释放 UI 资源
+            self.pv.destroy()
             threading.Thread(target=self._auto_run, args=(to_run,), daemon=True).start()
-        else:
-            messagebox.showwarning("提示", "没有可录入的条码（已被全部排除）")
 
     def _auto_run(self, sns):
-        time.sleep(1.5)
+        """核心自动化逻辑"""
+        time.sleep(2.0) # 给用户时间切换窗口
         try:
             e1 = float(self.spin_e1.get())
             mid = float(self.spin_mid.get())
             e2 = float(self.spin_e2.get())
+            
             for sn in sns:
-                # 动作 1: 全选
+                # 1. 全选旧内容
                 with kb_controller.pressed(Key.ctrl):
                     kb_controller.press('a')
                     kb_controller.release('a')
-                time.sleep(0.1)
-                
-                # 动作 2: 剪贴板写入并同步
-                try:
-                    self.root.clipboard_clear()
-                    self.root.clipboard_append(sn)
-                    self.root.update()
-                except: pass
-                
+                time.sleep(0.05)
+                kb_controller.press(Key.backspace)
+                kb_controller.release(Key.backspace)
+
+                # 2. 写入剪贴板并粘贴
+                self.root.clipboard_clear()
+                self.root.clipboard_append(sn)
                 time.sleep(e1)
                 
-                # 动作 3: 粘贴
                 with kb_controller.pressed(Key.ctrl):
                     kb_controller.press('v')
                     kb_controller.release('v')
-                time.sleep(0.1)
                 
-                # 动作 4: 回车逻辑
+                time.sleep(mid)
+                
+                # 3. 回车确认
                 kb_controller.press(Key.enter)
                 kb_controller.release(Key.enter)
+                
                 if self.use_double_enter.get():
-                    time.sleep(mid)
+                    time.sleep(0.1)
                     kb_controller.press(Key.enter)
                     kb_controller.release(Key.enter)
-                
+
+                # 4. 更新UI日志
+                self.root.after(0, self.update_log, sn)
                 time.sleep(e2)
                 
-                if sn not in BARCODE_HISTORY:
-                    BARCODE_HISTORY.add(sn)
-                    with open(HISTORY_FILE, "a", encoding="utf-8") as f:
-                        f.write(f"{sn}\n")
-                self.root.after(0, self.add_log, sn, "auto")
-        except:
-            pass
+            winsound.Beep(1000, 500)
+            self.root.after(0, lambda: messagebox.showinfo("完成", "批量任务执行完毕"))
+        except Exception as e:
+            self.root.after(0, lambda: messagebox.showerror("错误", f"运行中断: {e}"))
 
-    def trigger_alarm(self, is_dup):
-        if self.flash_timer:
-            self.root.after_cancel(self.flash_timer)
-        if not is_dup:
-            winsound.Beep(800, 150)
-            self.current_state_color = self.clr_ok_static
-            self._apply_ui_color(self.clr_ok_static, "#d5f5e3")
-        else:
-            winsound.Beep(1200, 600)
-            self.is_flashing = True
-            self._dup_flash_step(0)
-            self.flash_timer = self.root.after(1500, self.stop_flash)
-
-    def _dup_flash_step(self, count):
-        if not self.is_flashing:
-            return
-        clr = self.clr_dup_red if count % 2 == 0 else self.clr_dup_yellow
-        self._apply_ui_color(clr, clr)
-        self.flash_timer = self.root.after(100, lambda: self._dup_flash_step(count + 1))
-
-    def stop_flash(self):
-        self.is_flashing = False
-        target_log = "#d5f5e3" if self.current_state_color == self.clr_ok_static else self.clr_log_normal
-        self._apply_ui_color(self.current_state_color, target_log)
-
-    def _apply_ui_color(self, main_clr, log_clr):
-        self.root.configure(bg=main_clr)
-        self.log_text.configure(bg=log_clr)
-
-    def add_log(self, code, status_tag=None):
-        self.log_text.config(state=tk.NORMAL)
-        ts = time.strftime("%H:%M:%S")
-        status = "[重复]" if status_tag == "dup" else ("[自动过站]" if status_tag == "auto" else "[成功]")
-        self.log_text.insert(tk.END, f"{ts} {status} {code}\n", status_tag)
+    def update_log(self, sn):
+        self.log_text.insert(tk.END, f"已录入: {sn}\n", "auto")
         self.log_text.see(tk.END)
-        self.log_text.config(state=tk.DISABLED)
+        if sn not in BARCODE_HISTORY:
+            BARCODE_HISTORY.add(sn)
+            with open(HISTORY_FILE, "a", encoding="utf-8") as f:
+                f.write(sn + "\n")
         self.info_lbl.config(text=f"Total: {len(BARCODE_HISTORY)}")
-
-    def update_monitor(self, code, is_dup):
-        self.trigger_alarm(is_dup)
-        if is_dup:
-            self.add_log(code, "dup")
-            if self.use_pb.get():
-                with kb_controller.pressed(Key.shift):
-                    kb_controller.press(Key.tab)
-                    kb_controller.release(Key.tab)
-                time.sleep(0.05)
-                with kb_controller.pressed(Key.ctrl):
-                    kb_controller.press('a')
-                    kb_controller.release('a')
-        else:
-            self.add_log(code)
-
-def on_press(key):
-    global LAST_KEY_TIME, SCAN_BUFFER
-    now = time.time()
-    try:
-        char = key.char if hasattr(key, 'char') else ('\n' if key == Key.enter else None)
-        if not char: return
-        if now - LAST_KEY_TIME < SCAN_SPEED_THRESHOLD:
-            if char == '\n':
-                barcode = "".join(SCAN_BUFFER).strip()
-                if barcode:
-                    is_dup = barcode in BARCODE_HISTORY
-                    app.root.after(0, app.update_monitor, barcode, is_dup)
-                    if not is_dup:
-                        BARCODE_HISTORY.add(barcode)
-                        with open(HISTORY_FILE, "a", encoding="utf-8") as f:
-                            f.write(f"{barcode}\n")
-                SCAN_BUFFER = []
-            else:
-                SCAN_BUFFER.append(char)
-        else:
-            SCAN_BUFFER = [char] if char != '\n' else []
-        LAST_KEY_TIME = now
-    except:
-        pass
 
 if __name__ == "__main__":
     root = tk.Tk()
     app = UltimateMiniGuard(root)
-    listener = keyboard.Listener(on_press=on_press)
-    listener.start()
     root.mainloop()
