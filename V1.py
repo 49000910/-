@@ -25,36 +25,33 @@ if os.path.exists(HISTORY_FILE):
 class UltimateMiniGuard:
     def __init__(self, root):
         self.root = root
-        self.root.geometry("450x260") # 稍微加高一点留给标题
+        self.root.geometry("450x260") 
         self.root.attributes("-topmost", True)
         self.root.attributes("-alpha", 0.92)
-        self.root.overrideredirect(True) # 无系统边框
+        self.root.overrideredirect(True) 
 
-        # 配色方案 (视觉建议：使用深一点的莫兰迪青作为标题栏)
-        self.clr_title_bar = "#80CBC4"    # 自定义标题栏颜色
-        self.clr_head_normal = "#B2DFDB"  # 参数栏颜色
-        self.clr_default_bg = "#ECEFF1"   # 主背景
-        self.clr_ok_green = "#A5D6A7"     # 采集成功
-        self.clr_dup_red = "#EF9A9A"      # 拦截报警
-        self.clr_dup_yellow = "#FFF59D"   # 报警闪烁
+        # 配色方案
+        self.clr_title_bar = "#80CBC4"    
+        self.clr_head_normal = "#B2DFDB"  
+        self.clr_default_bg = "#ECEFF1"   
+        self.clr_ok_green = "#A5D6A7"     
+        self.clr_dup_red = "#EF9A9A"      
+        self.clr_dup_yellow = "#FFF59D"   
         
         self.root.configure(bg=self.clr_default_bg)
 
         # --- 1. 自定义悬浮标题栏 ---
         self.title_bar = tk.Frame(self.root, bg=self.clr_title_bar, height=25)
         self.title_bar.pack(fill=tk.X)
-        self.title_bar.pack_propagate(False) # 固定高度
+        self.title_bar.pack_propagate(False)
 
-        # 标题文字
         self.title_lbl = tk.Label(self.title_bar, text=" 智能助手 v4.5 - 悬浮控制台", 
                                  fg="#004D40", bg=self.clr_title_bar, font=("微软雅黑", 9, "bold"))
         self.title_lbl.pack(side=tk.LEFT)
 
-        # 退出按钮
         tk.Button(self.title_bar, text="✕", command=root.quit, bg="#FF7043", fg="white", 
                   font=("Arial", 9, "bold"), bd=0, cursor="hand2", padx=10).pack(side=tk.RIGHT)
 
-        # 绑定拖动 (点击标题栏或窗口均可)
         for widget in [self.title_bar, self.title_lbl, self.root]:
             widget.bind("<Button-1>", self.start_move)
             widget.bind("<B1-Motion>", self.do_move)
@@ -68,13 +65,19 @@ class UltimateMiniGuard:
         tk.Checkbutton(self.params_f, text="PB", variable=self.use_pb, bg=self.clr_head_normal).pack(side=tk.LEFT, padx=2)
         
         tk.Label(self.params_f, text="E1:", bg=self.clr_head_normal).pack(side=tk.LEFT)
-        self.spin_e1 = tk.Spinbox(self.params_f, **spin_opt); self.spin_e1.delete(0, "end"); self.spin_e1.insert(0, "0.1"); self.spin_e1.pack(side=tk.LEFT)
+        self.spin_e1 = tk.Spinbox(self.params_f, **spin_opt)
+        self.spin_e1.delete(0, "end")
+        self.spin_e1.insert(0, "0.1")
+        self.spin_e1.pack(side=tk.LEFT)
 
         self.use_double_enter = tk.BooleanVar(value=False)
         tk.Checkbutton(self.params_f, text="回2", variable=self.use_double_enter, bg=self.clr_head_normal).pack(side=tk.LEFT, padx=2)
         
         tk.Label(self.params_f, text="中:", bg=self.clr_head_normal).pack(side=tk.LEFT)
-        self.spin_mid = tk.Spinbox(self.params_f, **spin_opt); self.spin_mid.delete(0, "end"); self.spin_mid.insert(0, "0.1"); self.spin_mid.pack(side=tk.LEFT)
+        self.spin_mid = tk.Spinbox(self.params_f, **spin_opt)
+        self.spin_mid.delete(0, "end")
+        self.spin_mid.insert(0, "0.1")
+        self.spin_mid.pack(side=tk.LEFT)
         
         tk.Button(self.params_f, text="批量", command=self.pop_preview_window, bg="#CFD8DC", font=("微软雅黑", 8), relief=tk.FLAT).pack(side=tk.RIGHT, padx=5)
 
@@ -90,7 +93,6 @@ class UltimateMiniGuard:
         self.listener = keyboard.Listener(on_press=self.on_press)
         self.listener.start()
 
-    # --- 逻辑处理 ---
     def start_move(self, event): self.x = event.x; self.y = event.y
     def do_move(self, event):
         deltax = event.x - self.x; deltay = event.y - self.y
@@ -99,7 +101,6 @@ class UltimateMiniGuard:
 
     def set_all_colors(self, color, text_bg=None):
         t_bg = text_bg if text_bg else color
-        # 联动修改标题栏颜色，形成整体闪烁感
         self.root.configure(bg=color)
         self.title_bar.configure(bg=color)
         self.title_lbl.configure(bg=color)
@@ -112,22 +113,29 @@ class UltimateMiniGuard:
         def s2(): self.set_all_colors(self.clr_dup_yellow)
         def final(): 
             self.set_all_colors(self.clr_dup_red, "#FFEBEE")
-            self.title_bar.configure(bg="#D32F2F") # 报警结束标题留深红
+            self.title_bar.configure(bg="#D32F2F")
             self.title_lbl.configure(bg="#D32F2F", fg="white")
         s1(); self.root.after(80, s2); self.root.after(160, s1); self.root.after(240, s2); self.root.after(320, final)
 
     def handle_scan(self, barcode):
         if barcode in BARCODE_HISTORY:
-            winsound.Beep(1200, 400); self.flash_warning()
+            winsound.Beep(1200, 400)
+            self.flash_warning()
             self.log_text.insert("1.0", f"[拦截重复] {barcode}\n", "dup")
             if self.use_pb.get():
-                kb_controller.press(Key.up); kb_controller.release(Key.up)
-                time.sleep(0.05); with kb_controller.pressed(Key.ctrl): kb_controller.press('a'); kb_controller.release('a')
+                kb_controller.press(Key.up)
+                kb_controller.release(Key.up)
+                time.sleep(0.05) 
+                with kb_controller.pressed(Key.ctrl):
+                    kb_controller.press('a')
+                    kb_controller.release('a')
         else:
             self.set_all_colors(self.clr_ok_green, "#E8F5E9")
-            self.title_bar.configure(bg="#66BB6A") # 成功标题变深绿
+            self.title_bar.configure(bg="#66BB6A")
             self.title_lbl.configure(bg="#66BB6A", fg="#E8F5E9")
-            BARCODE_HISTORY.add(barcode); open(HISTORY_FILE, "a", encoding="utf-8").write(barcode + "\n")
+            BARCODE_HISTORY.add(barcode)
+            with open(HISTORY_FILE, "a", encoding="utf-8") as f:
+                f.write(barcode + "\n")
             self.log_text.insert("1.0", f"[扫描成功] {barcode}\n")
             self.info_lbl.config(text=f"Total: {len(BARCODE_HISTORY)}")
 
@@ -146,7 +154,6 @@ class UltimateMiniGuard:
             else: SCAN_BUFFER = [char] if char != '\n' else []
         except: pass
 
-    # 其余预览、批量逻辑保持不变
     def pop_preview_window(self):
         try: raw = self.root.clipboard_get()
         except: return
@@ -163,22 +170,33 @@ class UltimateMiniGuard:
         item = self.tree.identify_row(event.y)
         if item:
             v = list(self.tree.item(item, "values"))
-            self.tree.item(item, values=("☑" if v == "☐" else "☐", v))
+            self.tree.item(item, values=("☑" if v[0] == "☐" else "☐", v[1]))
 
     def run_auto(self):
-        to_run = [self.tree.item(i, "values") for i in self.tree.get_children() if self.tree.item(i, "values") == "☐"]
+        to_run = [self.tree.item(i, "values")[1] for i in self.tree.get_children() if self.tree.item(i, "values")[0] == "☐"]
         if to_run: self.pv.destroy(); threading.Thread(target=self._auto_core, args=(to_run,), daemon=True).start()
 
     def _auto_core(self, sns):
         time.sleep(1.5)
         try:
-            e1, mid, e2 = float(self.spin_e1.get()), float(self.spin_mid.get()), 0.3
+            e1, mid = float(self.spin_e1.get()), float(self.spin_mid.get())
             for sn in sns:
-                with kb_controller.pressed(Key.ctrl): kb_controller.press('a'); kb_controller.release('a')
-                time.sleep(0.05); self.root.clipboard_clear(); self.root.clipboard_append(sn); self.root.update()
-                time.sleep(e1); with kb_controller.pressed(Key.ctrl): kb_controller.press('v'); kb_controller.release('v')
-                time.sleep(mid); kb_controller.press(Key.enter); kb_controller.release(Key.enter)
-                self.root.after(0, lambda s=sn: self.update_auto_ui(s)); time.sleep(e2)
+                with kb_controller.pressed(Key.ctrl):
+                    kb_controller.press('a')
+                    kb_controller.release('a')
+                time.sleep(0.05)
+                self.root.clipboard_clear()
+                self.root.clipboard_append(sn)
+                self.root.update()
+                time.sleep(e1)
+                with kb_controller.pressed(Key.ctrl):
+                    kb_controller.press('v')
+                    kb_controller.release('v')
+                time.sleep(mid)
+                kb_controller.press(Key.enter)
+                kb_controller.release(Key.enter)
+                self.root.after(0, lambda s=sn: self.update_auto_ui(s))
+                time.sleep(0.3)
         except: pass
 
     def update_auto_ui(self, sn):
