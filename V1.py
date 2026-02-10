@@ -12,7 +12,7 @@ HISTORY_FILE = "barcode_history.txt"
 BARCODE_HISTORY = set()
 SCAN_BUFFER = []
 LAST_KEY_TIME = 0
-SCAN_SPEED_THRESHOLD = 0.05 
+SCAN_SPEED_THRESHOLD = 0.05 # 拦截判定阈值：0.05秒
 kb_controller = Controller()
 
 if os.path.exists(HISTORY_FILE):
@@ -30,7 +30,7 @@ class UltimateMiniGuard:
         self.root.attributes("-alpha", 0.92)
         self.root.overrideredirect(True) 
 
-        # 配色方案
+        # 舒服的配色方案
         self.clr_title_bar = "#80CBC4"    
         self.clr_head_normal = "#B2DFDB"  
         self.clr_default_bg = "#ECEFF1"   
@@ -40,12 +40,12 @@ class UltimateMiniGuard:
         
         self.root.configure(bg=self.clr_default_bg)
 
-        # --- 1. 自定义悬浮标题栏 ---
+        # --- 1. 自定义标题栏 ---
         self.title_bar = tk.Frame(self.root, bg=self.clr_title_bar, height=25)
         self.title_bar.pack(fill=tk.X)
         self.title_bar.pack_propagate(False)
 
-        self.title_lbl = tk.Label(self.title_bar, text=" 智能助手 v4.5 - 悬浮控制台", 
+        self.title_lbl = tk.Label(self.title_bar, text=" 智能助手 v4.5 - 网页表单版", 
                                  fg="#004D40", bg=self.clr_title_bar, font=("微软雅黑", 9, "bold"))
         self.title_lbl.pack(side=tk.LEFT)
 
@@ -66,18 +66,11 @@ class UltimateMiniGuard:
         
         tk.Label(self.params_f, text="E1:", bg=self.clr_head_normal).pack(side=tk.LEFT)
         self.spin_e1 = tk.Spinbox(self.params_f, **spin_opt)
-        self.spin_e1.delete(0, "end")
-        self.spin_e1.insert(0, "0.1")
-        self.spin_e1.pack(side=tk.LEFT)
+        self.spin_e1.delete(0, "end"); self.spin_e1.insert(0, "0.1"); self.spin_e1.pack(side=tk.LEFT)
 
-        self.use_double_enter = tk.BooleanVar(value=False)
-        tk.Checkbutton(self.params_f, text="回2", variable=self.use_double_enter, bg=self.clr_head_normal).pack(side=tk.LEFT, padx=2)
-        
         tk.Label(self.params_f, text="中:", bg=self.clr_head_normal).pack(side=tk.LEFT)
         self.spin_mid = tk.Spinbox(self.params_f, **spin_opt)
-        self.spin_mid.delete(0, "end")
-        self.spin_mid.insert(0, "0.1")
-        self.spin_mid.pack(side=tk.LEFT)
+        self.spin_mid.delete(0, "end"); self.spin_mid.insert(0, "0.8"); self.spin_mid.pack(side=tk.LEFT)
         
         tk.Button(self.params_f, text="批量", command=self.pop_preview_window, bg="#CFD8DC", font=("微软雅黑", 8), relief=tk.FLAT).pack(side=tk.RIGHT, padx=5)
 
@@ -85,7 +78,6 @@ class UltimateMiniGuard:
         self.log_text = tk.Text(self.root, font=("Consolas", 9), bg="#ffffff", height=10, bd=0, padx=5, pady=5)
         self.log_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.log_text.tag_config("dup", background="#FFEBEE", foreground="#C62828")
-        self.log_text.tag_config("auto", foreground="#1565C0") 
 
         self.info_lbl = tk.Label(self.root, text=f"Total: {len(BARCODE_HISTORY)}", font=("微软雅黑", 8), bg=self.clr_default_bg)
         self.info_lbl.pack(side=tk.RIGHT, padx=5)
@@ -93,49 +85,48 @@ class UltimateMiniGuard:
         self.listener = keyboard.Listener(on_press=self.on_press)
         self.listener.start()
 
-    def start_move(self, event): self.x = event.x; self.y = event.y
+    def start_move(self, event): self.x, self.y = event.x, event.y
     def do_move(self, event):
-        deltax = event.x - self.x; deltay = event.y - self.y
-        x = self.root.winfo_x() + deltax; y = self.root.winfo_y() + deltay
+        x = self.root.winfo_x() + (event.x - self.x)
+        y = self.root.winfo_y() + (event.y - self.y)
         self.root.geometry(f"+{x}+{y}")
 
     def set_all_colors(self, color, text_bg=None):
         t_bg = text_bg if text_bg else color
-        self.root.configure(bg=color)
-        self.title_bar.configure(bg=color)
-        self.title_lbl.configure(bg=color)
-        self.params_f.configure(bg=color)
-        self.log_text.configure(bg=t_bg)
-        self.info_lbl.configure(bg=color)
+        self.root.configure(bg=color); self.title_bar.configure(bg=color)
+        self.title_lbl.configure(bg=color); self.params_f.configure(bg=color)
+        self.log_text.configure(bg=t_bg); self.info_lbl.configure(bg=color)
 
     def flash_warning(self):
-        def s1(): self.set_all_colors(self.clr_dup_red)
-        def s2(): self.set_all_colors(self.clr_dup_yellow)
-        def final(): 
-            self.set_all_colors(self.clr_dup_red, "#FFEBEE")
-            self.title_bar.configure(bg="#D32F2F")
-            self.title_lbl.configure(bg="#D32F2F", fg="white")
-        s1(); self.root.after(80, s2); self.root.after(160, s1); self.root.after(240, s2); self.root.after(320, final)
+        """1.5秒警报闪烁"""
+        end_time = time.time() + 1.5
+        def do_flash():
+            if time.time() < end_time:
+                curr = self.root.cget("bg")
+                new_c = self.clr_dup_yellow if curr == self.clr_dup_red else self.clr_dup_red
+                self.set_all_colors(new_c)
+                self.root.after(120, do_flash)
+            else:
+                self.set_all_colors(self.clr_dup_red, "#FFEBEE")
+                self.title_bar.configure(bg="#D32F2F"); self.title_lbl.configure(bg="#D32F2F", fg="white")
+        do_flash()
 
     def handle_scan(self, barcode):
         if barcode in BARCODE_HISTORY:
-            winsound.Beep(1200, 400)
-            self.flash_warning()
+            winsound.Beep(1200, 400); self.flash_warning()
             self.log_text.insert("1.0", f"[拦截重复] {barcode}\n", "dup")
             if self.use_pb.get():
-                kb_controller.press(Key.up)
-                kb_controller.release(Key.up)
-                time.sleep(0.05) 
+                # 网页拦截：回退并全选
+                with kb_controller.pressed(Key.shift):
+                    kb_controller.press(Key.tab); kb_controller.release(Key.tab)
+                time.sleep(0.08) 
                 with kb_controller.pressed(Key.ctrl):
-                    kb_controller.press('a')
-                    kb_controller.release('a')
+                    kb_controller.press('a'); kb_controller.release('a')
         else:
             self.set_all_colors(self.clr_ok_green, "#E8F5E9")
-            self.title_bar.configure(bg="#66BB6A")
-            self.title_lbl.configure(bg="#66BB6A", fg="#E8F5E9")
+            self.title_bar.configure(bg="#66BB6A"); self.title_lbl.configure(bg="#66BB6A", fg="#E8F5E9")
             BARCODE_HISTORY.add(barcode)
-            with open(HISTORY_FILE, "a", encoding="utf-8") as f:
-                f.write(barcode + "\n")
+            with open(HISTORY_FILE, "a", encoding="utf-8") as f: f.write(barcode + "\n")
             self.log_text.insert("1.0", f"[扫描成功] {barcode}\n")
             self.info_lbl.config(text=f"Total: {len(BARCODE_HISTORY)}")
 
@@ -148,8 +139,8 @@ class UltimateMiniGuard:
             else: return
             if interval < SCAN_SPEED_THRESHOLD:
                 if char == '\n':
-                    barcode = "".join(SCAN_BUFFER).strip(); SCAN_BUFFER = []
-                    if barcode: self.root.after(0, self.handle_scan, barcode)
+                    bc = "".join(SCAN_BUFFER).strip(); SCAN_BUFFER = []
+                    if bc: self.root.after(0, self.handle_scan, bc)
                 else: SCAN_BUFFER.append(char)
             else: SCAN_BUFFER = [char] if char != '\n' else []
         except: pass
@@ -159,7 +150,7 @@ class UltimateMiniGuard:
         except: return
         lines = sorted(list(set([s.strip() for s in str(raw).split('\n') if s.strip()])))
         if not lines: return
-        self.pv = tk.Toplevel(self.root); self.pv.title("批量预览"); self.pv.attributes("-alpha", 0.95); self.pv.attributes("-topmost", True)
+        self.pv = tk.Toplevel(self.root); self.pv.title("预览"); self.pv.attributes("-alpha", 0.95); self.pv.attributes("-topmost", True)
         self.tree = ttk.Treeview(self.pv, columns=("check", "barcode"), show="headings")
         self.tree.heading("check", text="状态"); self.tree.column("check", width=40); self.tree.heading("barcode", text="内容"); self.tree.column("barcode", width=300); self.tree.pack(fill=tk.BOTH, expand=True)
         for s in lines: self.tree.insert("", tk.END, values=("☐", s))
@@ -182,25 +173,16 @@ class UltimateMiniGuard:
             e1, mid = float(self.spin_e1.get()), float(self.spin_mid.get())
             for sn in sns:
                 with kb_controller.pressed(Key.ctrl):
-                    kb_controller.press('a')
-                    kb_controller.release('a')
-                time.sleep(0.05)
-                self.root.clipboard_clear()
-                self.root.clipboard_append(sn)
-                self.root.update()
-                time.sleep(e1)
-                with kb_controller.pressed(Key.ctrl):
-                    kb_controller.press('v')
-                    kb_controller.release('v')
-                time.sleep(mid)
-                kb_controller.press(Key.enter)
-                kb_controller.release(Key.enter)
-                self.root.after(0, lambda s=sn: self.update_auto_ui(s))
-                time.sleep(0.3)
+                    kb_controller.press('a'); kb_controller.release('a')
+                time.sleep(0.05); self.root.clipboard_clear(); self.root.clipboard_append(sn); self.root.update()
+                time.sleep(e1); with kb_controller.pressed(Key.ctrl):
+                    kb_controller.press('v'); kb_controller.release('v')
+                time.sleep(mid); kb_controller.press(Key.enter); kb_controller.release(Key.enter)
+                self.root.after(0, lambda s=sn: self.update_auto_ui(s)); time.sleep(0.3)
         except: pass
 
     def update_auto_ui(self, sn):
-        self.log_text.insert("1.0", f"[批量完成] {sn}\n", "auto")
+        self.log_text.insert("1.0", f"[批量完成] {sn}\n")
         self.info_lbl.config(text=f"Total: {len(BARCODE_HISTORY)}")
 
 if __name__ == "__main__":
