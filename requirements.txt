@@ -1,0 +1,3 @@
+pynput==1.7.6
+# 如果需要打包，PyInstaller 最好也指定版本
+pyinstaller==6.3.0
