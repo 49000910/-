@@ -38,7 +38,7 @@ class UltimateMiniGuard:
         self.current_state_color = self.clr_default_bg
         self.root.configure(bg=self.clr_default_bg)
 
-        # 1. 顶部控制行
+        # 1. 顶部参数行
         self.head_f = tk.Frame(self.root, bg=self.clr_head_normal, pady=3); self.head_f.pack(fill=tk.X)
         params_f = tk.Frame(self.head_f, bg=self.clr_head_normal); params_f.pack(fill=tk.X, padx=5)
         
@@ -91,28 +91,20 @@ class UltimateMiniGuard:
     def pop_preview_window(self):
         raw_text = self.get_clipboard_text()
         if not raw_text: return
-        
-        # 1. 基础过滤：清洗换行符和空行
         lines = [s.strip() for s in raw_text.replace('\r\n', '\n').split('\n') if s.strip()]
-        
-        # 2. 自动排序：按字符/数字大小升序排列
         sns = sorted(lines) 
-        
         if not sns: return
 
-        pv = tk.Toplevel(self.root)
-        pv.title(f"排序预览 (勾选=排除): {len(sns)}条"); pv.geometry("320x400"); pv.attributes("-topmost", True)
+        pv = tk.Toplevel(self.root); pv.title(f"排序预览 (勾选=排除): {len(sns)}条")
+        pv.geometry("320x400"); pv.attributes("-topmost", True)
         
         columns = ("check", "barcode")
         tree = ttk.Treeview(pv, columns=columns, show="headings", height=15, selectmode="browse")
-        tree.heading("check", text="排除")
-        tree.heading("barcode", text="条码内容 (已排序)")
-        tree.column("check", width=40, anchor="center")
-        tree.column("barcode", width=230)
+        tree.heading("check", text="排除"); tree.heading("barcode", text="条码内容 (已排序)")
+        tree.column("check", width=40, anchor="center"); tree.column("barcode", width=230)
         tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        for s in sns:
-            tree.insert("", tk.END, values=("☐", s))
+        for s in sns: tree.insert("", tk.END, values=("☐", s))
 
         def on_click(event):
             item = tree.identify_row(event.y)
@@ -124,7 +116,6 @@ class UltimateMiniGuard:
         tree.bind("<ButtonRelease-1>", on_click)
 
         def run_task():
-            # 仅提取未被勾选排除的任务进行录入
             checked_list = [tree.item(i, "values")[1] for i in tree.get_children() if tree.item(i, "values")[0] == "☐"]
             if checked_list:
                 self.execute_auto(checked_list)
@@ -140,15 +131,18 @@ class UltimateMiniGuard:
         try:
             e1 = float(self.spin_e1.get()); mid = float(self.spin_mid.get()); e2 = float(self.spin_e2.get())
             for sn in sns:
-                with kb_controller.pressed(Key.ctrl): kb_controller.press('a'); kb_controller.release('a')
+                with kb_controller.pressed(Key.ctrl):
+                    kb_controller.press('a'); kb_controller.release('a')
                 time.sleep(0.15)
                 self.root.clipboard_clear(); self.root.clipboard_append(sn); self.root.update()
                 time.sleep(e1)
-                with kb_controller.pressed(Key.ctrl): kb_controller.press('v'); kb_controller.release('v')
+                with kb_controller.pressed(Key.ctrl):
+                    kb_controller.press('v'); kb_controller.release('v')
                 time.sleep(0.15)
                 kb_controller.press(Key.enter); kb_controller.release(Key.enter)
                 if self.use_double_enter.get():
-                    time.sleep(mid); kb_controller.press(Key.enter); kb_controller.release(Key.enter)
+                    time.sleep(mid)
+                    kb_controller.press(Key.enter); kb_controller.release(Key.enter)
                 time.sleep(e2)
                 if sn not in BARCODE_HISTORY:
                     BARCODE_HISTORY.add(sn)
@@ -158,7 +152,6 @@ class UltimateMiniGuard:
 
     def trigger_alarm(self, is_dup):
         if self.flash_timer: self.root.after_cancel(self.flash_timer)
-        self.is_flashing = False
         if not is_dup:
             winsound.Beep(800, 150); self.current_state_color = self.clr_ok_static
             self._apply_ui_color(self.clr_ok_static, "#d5f5e3")
@@ -169,7 +162,8 @@ class UltimateMiniGuard:
     def _dup_flash_step(self, count):
         if not self.is_flashing: return
         clr = self.clr_dup_red if count % 2 == 0 else self.clr_dup_yellow
-        self._apply_ui_color(clr, clr); self.flash_timer = self.root.after(100, lambda: self._dup_flash_step(count + 1))
+        self._apply_ui_color(clr, clr)
+        self.flash_timer = self.root.after(100, lambda: self._dup_flash_step(count + 1))
 
     def stop_flash(self):
         self.is_flashing = False
@@ -191,8 +185,11 @@ class UltimateMiniGuard:
         if is_dup:
             self.add_log(code, "dup")
             if self.use_pb.get():
-                with kb_controller.pressed(Key.shift): kb_controller.press(Key.tab); kb_controller.release(Key.tab)
-                time.sleep(0.1); with kb_controller.pressed(Key.ctrl): kb_controller.press('a'); kb_controller.release('a')
+                with kb_controller.pressed(Key.shift):
+                    kb_controller.press(Key.tab); kb_controller.release(Key.tab)
+                time.sleep(0.1)
+                with kb_controller.pressed(Key.ctrl):
+                    kb_controller.press('a'); kb_controller.release('a')
         else: self.add_log(code)
 
 def on_press(key):
