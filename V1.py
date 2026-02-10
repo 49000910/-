@@ -26,7 +26,7 @@ kb_controller = Controller()
 class FinalProApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("摸鱼工具箱 v4.2")
+        self.root.title("摸鱼工具箱 v4.2 (Stable)")
         self.root.geometry("400x750")
         self.root.attributes("-topmost", True, "-alpha", 0.9)
         self.root.configure(bg="#121212")
@@ -51,13 +51,11 @@ class FinalProApp:
         self.sn_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self.sb1.config(command=self.sn_list.yview)
 
-        # 功能控制行
         ctrl_p = tk.Frame(entry_f, bg=self.dark_idle)
         ctrl_p.pack(fill=tk.X, padx=2, pady=2)
         tk.Button(ctrl_p, text="❌ 删除选中", bg="#421010", fg="#ff9999", bd=0, font=("微软雅黑", 8), command=self.delete_selected).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
         tk.Button(ctrl_p, text="🔥 开始录入 (5s)", bg="#1b5e20", fg="white", bd=0, font=("微软雅黑", 8, "bold"), command=self.start_entry_thread).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
         
-        # 精简参数调节区 (限制范围 0.1-1.0s)
         settings_f = tk.Frame(entry_f, bg=self.dark_idle)
         settings_f.pack(fill=tk.X, padx=2, pady=2)
         
@@ -108,7 +106,8 @@ class FinalProApp:
 
     def _update_lan_ui(self, txt):
         self.lan_display.config(state=tk.NORMAL)
-        self.lan_display.delete('1.0', tk.END); self.lan_display.insert(tk.END, txt)
+        self.lan_display.delete('1.0', tk.END)
+        self.lan_display.insert(tk.END, txt)
         self.lan_display.config(state=tk.DISABLED)
 
     def delete_selected(self):
@@ -117,13 +116,16 @@ class FinalProApp:
 
     def paste_sn(self):
         try:
-            for s in self.root.clipboard_get().split('\n'):
+            data = self.root.clipboard_get()
+            for s in data.split('\n'):
                 if s.strip(): self.sn_list.insert(tk.END, s.strip())
         except: pass
 
     def clear_logs(self):
-        self.log_area.config(bg="#222"); self.status_bar.config(bg="#222", text="等待扫描...")
-        self.log_area.delete('1.0', tk.END); BARCODE_HISTORY.clear()
+        self.log_area.config(bg="#222")
+        self.status_bar.config(bg="#222", text="等待扫描...")
+        self.log_area.delete('1.0', tk.END)
+        BARCODE_HISTORY.clear()
 
     def start_entry_thread(self):
         sns = self.sn_list.get(0, tk.END)
@@ -134,13 +136,27 @@ class FinalProApp:
     def _run_entry(self, sns):
         time.sleep(5)
         for sn in sns:
-            kb_controller.press(Key.ctrl); kb_controller.press('a'); kb_controller.release('a'); time.sleep(0.1)
+            # 1. 全选
+            kb_controller.press(Key.ctrl)
+            kb_controller.press('a')
+            kb_controller.release('a')
+            time.sleep(0.1)
+            # 2. 剪贴板操作
             self.root.after(0, lambda x=sn: [self.root.clipboard_clear(), self.root.clipboard_append(x)])
-            time.sleep(0.1); kb_controller.press('v'); kb_controller.release('v'); kb_controller.release(Key.ctrl)
-            time.sleep(0.2); kb_controller.press(Key.enter); kb_controller.release(Key.enter)
+            time.sleep(0.1)
+            # 3. 粘贴
+            kb_controller.press('v')
+            kb_controller.release('v')
+            kb_controller.release(Key.ctrl)
+            time.sleep(0.2)
+            # 4. 回车执行
+            kb_controller.press(Key.enter)
+            kb_controller.release(Key.enter)
             time.sleep(self.s_double_enter.get())
-            kb_controller.press(Key.enter); kb_controller.release(Key.enter)
+            kb_controller.press(Key.enter)
+            kb_controller.release(Key.enter)
             time.sleep(self.s_enter_speed.get())
+        
         self.root.after(0, lambda: [self.root.attributes("-alpha", 0.9), winsound.Beep(1000, 300)])
 
     def update_monitor(self, code, is_dup):
@@ -153,9 +169,16 @@ class FinalProApp:
         if is_dup:
             winsound.Beep(1500, 600)
             if self.enable_pullback.get():
-                with kb_controller.pressed(Key.shift): kb_controller.press(Key.tab); kb_controller.release(Key.tab)
-                time.sleep(0.15); with kb_controller.pressed(Key.ctrl): kb_controller.press('a'); kb_controller.release('a')
+                # 拉回逻辑
+                with kb_controller.pressed(Key.shift):
+                    kb_controller.press(Key.tab)
+                    kb_controller.release(Key.tab)
+                time.sleep(0.15)
+                with kb_controller.pressed(Key.ctrl):
+                    kb_controller.press('a')
+                    kb_controller.release('a')
 
+# --- 系统逻辑 ---
 def get_file_md5(f):
     if not os.path.exists(f): return None
     h = hashlib.md5()
@@ -164,29 +187,39 @@ def get_file_md5(f):
     return h.hexdigest()
 
 def check_update_and_login():
-    login_w = tk.Tk(); login_w.title("验证"); login_w.geometry("240x120")
+    login_w = tk.Tk()
+    login_w.title("验证")
+    login_w.geometry("240x120")
     login_w.eval('tk::PlaceWindow . center')
-    tk.Label(login_w, text="请输入授权码:").pack(pady=5)
-    pw_ent = tk.Entry(login_w, show="*"); pw_ent.pack(); pw_ent.focus_set()
+    tk.Label(login_w, text="授权码:").pack(pady=5)
+    pw_ent = tk.Entry(login_w, show="*")
+    pw_ent.pack()
+    pw_ent.focus_set()
 
     def do_login():
         try:
             with open(LAN_PWD_PATH, "r", encoding="utf-8-sig") as f:
                 if pw_ent.get() == f.read().strip():
                     login_w.withdraw()
+                    # 更新检测
                     src = LAN_UPDATE_SRC
                     cur = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
                     if os.path.exists(src) and get_file_md5(src) != get_file_md5(cur):
                         if messagebox.askyesno("更新", "检测到新版本，是否升级？"):
                             with open("updater.bat", "w") as f:
                                 f.write(f'@echo off\ntimeout /t 1\ncopy /y "{src}" "{cur}"\nstart "" "{cur}"\ndel %0')
-                            subprocess.Popen("updater.bat", shell=True); sys.exit()
-                    login_w.destroy(); start_main_app()
-                else: messagebox.showerror("!", "授权码错误")
-        except: messagebox.showerror("!", "无法连接内网服务器")
+                            subprocess.Popen("updater.bat", shell=True)
+                            sys.exit()
+                    login_w.destroy()
+                    start_main_app()
+                else:
+                    messagebox.showerror("!", "授权码错误")
+        except:
+            messagebox.showerror("!", "内网服务器连接失败")
 
     tk.Button(login_w, text="登录", command=do_login, width=10).pack(pady=10)
-    login_w.bind('<Return>', lambda e: do_login()); login_w.mainloop()
+    login_w.bind('<Return>', lambda e: do_login())
+    login_w.mainloop()
 
 def start_main_app():
     global app
