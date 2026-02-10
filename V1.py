@@ -1,192 +1,260 @@
+import ctypes
 import time
+import os
 import threading
 import winsound
-import os
+import hashlib
 import sys
+import subprocess
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk, scrolledtext
 from pynput import keyboard
 from pynput.keyboard import Controller, Key
 
-# --- 核心配置 ---
-HISTORY_FILE = "barcode_history.txt"
+# ================= 局域网配置 =================
+LAN_PWD_PATH = r"\\10.1.93.32\DT_HU_RDteam_F\视频\Z\密码\password.txt" 
+LAN_LOG_PATH = r"\\10.1.93.32\DT_HU_RDteam_F\视频\Z\密码\log.txt"
+LAN_UPDATE_SRC = r"\\10.1.93.32\DT_HU_RDteam_F\视频\Z\密码\update\摸鱼工具箱.exe"
+# =============================================
+
 BARCODE_HISTORY = set()
 SCAN_BUFFER = []
 LAST_KEY_TIME = 0
 SCAN_SPEED_THRESHOLD = 0.05 
 kb_controller = Controller()
 
-if os.path.exists(HISTORY_FILE):
-    try:
-        with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-            BARCODE_HISTORY = set(line.strip() for line in f if line.strip())
-    except: pass
-
-class UltraThinMonitor:
+class FinalProApp:
     def __init__(self, root):
         self.root = root
-        self.root.title("智能助手 v4.8")
-        self.root.geometry("400x230") # 宽度微调以容纳所有横排开关
-        self.root.attributes("-topmost", True, "-alpha", 0.92) 
-        self.root.overrideredirect(True)
-
-        # 1. 标题栏
-        self.title_bar = tk.Frame(self.root, bg="#2c3e50", height=20)
-        self.title_bar.pack(fill=tk.X)
-        tk.Label(self.title_bar, text=" 🛡️ Guard v4.8 (级简全功能)", font=("微软雅黑", 8, "bold"), fg="white", bg="#2c3e50").pack(side=tk.LEFT)
-        tk.Button(self.title_bar, text="×", bg="#2c3e50", fg="white", bd=0, command=self.safe_exit, font=("Arial", 8)).pack(side=tk.RIGHT, padx=5)
-        tk.Button(self.title_bar, text="—", bg="#2c3e50", fg="white", bd=0, command=self.minimize, font=("Arial", 8)).pack(side=tk.RIGHT, padx=5)
-
-        # 2. 交互主区
-        self.main_f = tk.Frame(self.root, bg="#90ee90", pady=2) 
-        self.main_f.pack(fill=tk.BOTH, expand=True)
-
-        # --- 核心横排参数行 (PB开关 | E1 | E2开关 | E2 | 批量) ---
-        params_f = tk.Frame(self.main_f, bg="#90ee90")
-        params_f.pack(fill=tk.X, padx=2, pady=2)
-        spin_opt = {"font": ("Consolas", 9), "width": 3, "from_": 0.0, "to": 5.0, "increment": 0.1, "bd": 1}
+        self.root.title("摸鱼工具箱 v4.2.1")
+        self.root.geometry("400x750")
+        self.root.attributes("-topmost", True, "-alpha", 0.9)
+        self.root.configure(bg="#121212")
         
-        # [开关] 拦截重复拉回 PB (PullBack)
-        self.use_pb = tk.BooleanVar(value=True)
-        tk.Checkbutton(params_f, variable=self.use_pb, bg="#90ee90", activebackground="#90ee90", bd=0).pack(side=tk.LEFT)
-        tk.Label(params_f, text="PB", font=("Consolas", 8, "bold"), bg="#90ee90").pack(side=tk.LEFT)
+        self.dark_idle, self.dark_green, self.dark_red = "#1e1e1e", "#004d00", "#660000"
+        self.text_fg = "#ffffff"
 
-        # [数字] E1
-        tk.Label(params_f, text="E1:", font=("Consolas", 8, "bold"), bg="#90ee90").pack(side=tk.LEFT, padx=(2,0))
-        self.spin_e1 = tk.Spinbox(params_f, **spin_opt)
-        self.spin_e1.delete(0, "end"); self.spin_e1.insert(0, "0.2")
-        self.spin_e1.pack(side=tk.LEFT, padx=1)
-
-        # [开关] 双回车
-        self.use_double_enter = tk.BooleanVar(value=True)
-        tk.Checkbutton(params_f, variable=self.use_double_enter, bg="#90ee90", activebackground="#90ee90", bd=0).pack(side=tk.LEFT, padx=(2,0))
+        # --- 1. 批量录入区 ---
+        entry_f = tk.LabelFrame(self.root, text=" ⚡ 录入清单 ", font=("微软雅黑", 8), bg=self.dark_idle, fg="#888")
+        entry_f.pack(fill=tk.BOTH, expand=True, padx=8, pady=2)
         
-        # [数字] E2
-        tk.Label(params_f, text="E2:", font=("Consolas", 8, "bold"), bg="#90ee90").pack(side=tk.LEFT)
-        self.spin_e2 = tk.Spinbox(params_f, **spin_opt)
-        self.spin_e2.delete(0, "end"); self.spin_e2.insert(0, "0.8")
-        self.spin_e2.pack(side=tk.LEFT, padx=1)
-
-        # [按钮] 批量
-        tk.Button(params_f, text="🔥批量", command=self.pop_preview, bg="#ffffff", font=("微软雅黑", 8, "bold"), bd=1, padx=2).pack(side=tk.RIGHT, padx=2)
-
-        # 3. 日志区
-        self.log_text = tk.Text(self.main_f, font=("Consolas", 9), bg="#ffffff", fg="#2c3e50", bd=0, height=8)
-        self.log_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=2)
-        self.log_text.tag_config("dup", background="#ffb2b2", foreground="#b22222")
-        self.log_text.tag_config("auto", foreground="#2980b9") 
-
-        # 4. 底部状态
-        self.info_f = tk.Frame(self.main_f, bg="#90ee90")
-        self.info_f.pack(fill=tk.X, side=tk.BOTTOM)
-        self.info_lbl = tk.Label(self.info_f, text=f"Total:{len(BARCODE_HISTORY)}", font=("Consolas", 8, "bold"), bg="#90ee90")
-        self.info_lbl.pack(side=tk.RIGHT, padx=5)
+        btn_f = tk.Frame(entry_f, bg=self.dark_idle)
+        btn_f.pack(fill=tk.X, padx=2, pady=1)
+        tk.Button(btn_f, text="📋 粘贴", command=self.paste_sn, bg="#333", fg="white", bd=0, font=("微软雅黑", 8)).pack(side=tk.RIGHT, padx=2)
+        tk.Button(btn_f, text="🗑️ 清空", command=lambda: self.sn_list.delete(0, tk.END), bg="#333", fg="white", bd=0, font=("微软雅黑", 8)).pack(side=tk.RIGHT, padx=2)
         
-        self.title_bar.bind("<Button-1>", self.start_move); self.title_bar.bind("<B1-Motion>", self.do_move)
-        self.log_count = len(BARCODE_HISTORY)
+        list_f = tk.Frame(entry_f, bg=self.dark_idle)
+        list_f.pack(fill=tk.BOTH, expand=True, padx=2)
+        self.sb1 = tk.Scrollbar(list_f)
+        self.sb1.pack(side=tk.RIGHT, fill=tk.Y)
+        self.sn_list = tk.Listbox(list_f, bg="#121212", fg=self.text_fg, bd=0, font=("Consolas", 9), yscrollcommand=self.sb1.set)
+        self.sn_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.sb1.config(command=self.sn_list.yview)
 
-    def pop_preview(self):
+        ctrl_p = tk.Frame(entry_f, bg=self.dark_idle)
+        ctrl_p.pack(fill=tk.X, padx=2, pady=2)
+        tk.Button(ctrl_p, text="❌ 删除选中", bg="#421010", fg="#ff9999", bd=0, font=("微软雅黑", 8), command=self.delete_selected).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
+        tk.Button(ctrl_p, text="🔥 开始录入 (5s)", bg="#1b5e20", fg="white", bd=0, font=("微软雅黑", 8, "bold"), command=self.start_entry_thread).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
+        
+        settings_f = tk.Frame(entry_f, bg=self.dark_idle)
+        settings_f.pack(fill=tk.X, padx=2, pady=2)
+        
+        self.enable_pullback = tk.BooleanVar(value=True)
+        tk.Checkbutton(settings_f, text="拦截回跳", variable=self.enable_pullback, bg=self.dark_idle, fg="#ffab00", font=("微软雅黑", 8), selectcolor="#000").pack(side=tk.LEFT)
+        
+        def create_s(label, default):
+            f = tk.Frame(settings_f, bg=self.dark_idle)
+            f.pack(side=tk.RIGHT, padx=2)
+            tk.Label(f, text=label, bg=self.dark_idle, fg="#666", font=("微软雅黑", 7)).pack(side=tk.LEFT)
+            s = tk.Scale(f, from_=0.1, to=1.0, resolution=0.1, orient=tk.HORIZONTAL, bg=self.dark_idle, fg="#aaa", bd=0, highlightthickness=0, length=55, font=("Arial", 7), showvalue=True)
+            s.set(default)
+            s.pack(side=tk.LEFT)
+            return s
+
+        self.s_double_enter = create_s("双回车:", 0.5)
+        self.s_enter_speed = create_s("回车时间:", 0.8)
+
+        # --- 2. 扫码监控区 ---
+        mon_f = tk.LabelFrame(self.root, text=" 🛡️ 扫描防重监控 ", font=("微软雅黑", 8), bg=self.dark_idle, fg="#888")
+        mon_f.pack(fill=tk.X, padx=8, pady=2)
+        self.status_bar = tk.Label(mon_f, text="等待扫描...", bg="#222", fg="white", font=("微软雅黑", 9, "bold"))
+        self.status_bar.pack(fill=tk.X, padx=2, pady=1)
+        self.log_area = scrolledtext.ScrolledText(mon_f, height=8, bg="#222", fg="white", font=("Consolas", 8), bd=0)
+        self.log_area.pack(fill=tk.X, padx=2, pady=2)
+
+        # --- 3. 内网公告 ---
+        lan_f = tk.LabelFrame(self.root, text=" 📢 内网公告 ", font=("微软雅黑", 7), bg="#000", fg="#00b0ff")
+        lan_f.pack(fill=tk.X, padx=8, pady=2)
+        self.lan_display = tk.Text(lan_f, height=3, bg="#000", fg="#00b0ff", font=("微软雅黑", 7), bd=0, padx=5)
+        self.lan_display.pack(fill=tk.X)
+        self.refresh_lan_log()
+
+        # --- 4. 底部栏 ---
+        bottom_f = tk.Frame(self.root, bg="#000")
+        bottom_f.pack(fill=tk.X, side=tk.BOTTOM)
+        self.stay_top = tk.BooleanVar(value=True)
+        tk.Checkbutton(bottom_f, text="始终置顶", variable=self.stay_top, bg="#000", fg="#444", font=("微软雅黑", 7), command=lambda: self.root.attributes("-topmost", self.stay_top.get())).pack(side=tk.LEFT, padx=5)
+        tk.Button(bottom_f, text="清空记录", command=self.clear_logs, font=("微软雅黑", 7), bd=0, bg="#000", fg="#444").pack(side=tk.RIGHT, padx=5)
+
+    def refresh_lan_log(self):
+        def read():
+            try:
+                if os.path.exists(LAN_LOG_PATH):
+                    with open(LAN_LOG_PATH, "r", encoding="utf-8-sig") as f:
+                        content = f.read()
+                    self.root.after(0, lambda: self._update_lan_ui(content))
+            except:
+                pass
+        threading.Thread(target=read, daemon=True).start()
+
+    def _update_lan_ui(self, txt):
+        self.lan_display.config(state=tk.NORMAL)
+        self.lan_display.delete('1.0', tk.END)
+        self.lan_display.insert(tk.END, txt)
+        self.lan_display.config(state=tk.DISABLED)
+
+    def delete_selected(self):
+        idx = self.sn_list.curselection()
+        if idx:
+            self.sn_list.delete(idx)
+
+    def paste_sn(self):
         try:
-            raw = self.root.clipboard_get().split('\n')
-            sns = sorted(list(set(s.strip() for s in raw if s.strip())))
-            if not sns: return
-        except: return
-        pv = tk.Toplevel(self.root)
-        pv.title("核对"); pv.geometry("240x350"); pv.attributes("-topmost", True)
-        lb = tk.Listbox(pv, font=("Consolas", 10), selectmode=tk.MULTIPLE)
-        lb.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-        for s in sns: lb.insert(tk.END, s)
-        lb.bind("<Delete>", lambda e: [lb.delete(i) for i in reversed(lb.curselection())])
-        btn_f = tk.Frame(pv); btn_f.pack(fill=tk.X, pady=5)
-        tk.Button(btn_f, text="🗑️删除", command=lambda: [lb.delete(i) for i in reversed(lb.curselection())], fg="#c0392b").pack(side=tk.LEFT, padx=10, expand=True, fill=tk.X)
-        tk.Button(btn_f, text="🚀执行", command=lambda: self.execute_auto(pv, lb), bg="#27ae60", fg="white", font=("微软雅黑", 9, "bold")).pack(side=tk.LEFT, padx=10, expand=True, fill=tk.X)
+            data = self.root.clipboard_get()
+            for s in data.split('\n'):
+                if s.strip():
+                    self.sn_list.insert(tk.END, s.strip())
+        except:
+            pass
 
-    def execute_auto(self, pv, lb):
-        sns = list(lb.get(0, tk.END)); pv.destroy()
+    def clear_logs(self):
+        self.log_area.config(bg="#222")
+        self.status_bar.config(bg="#222", text="等待扫描...")
+        self.log_area.delete('1.0', tk.END)
+        BARCODE_HISTORY.clear()
+
+    def start_entry_thread(self):
+        sns = self.sn_list.get(0, tk.END)
         if sns:
-            self.root.attributes("-alpha", 0.4)
-            threading.Thread(target=self._auto_run, args=(sns,), daemon=True).start()
+            self.root.attributes("-alpha", 0.3)
+            threading.Thread(target=self._run_entry, args=(sns,), daemon=True).start()
 
-    def _auto_run(self, sns):
-        time.sleep(4)
-        e1, e2 = float(self.spin_e1.get()), float(self.spin_e2.get())
-        double_mode = self.use_double_enter.get()
+    def _run_entry(self, sns):
+        time.sleep(5)
         for sn in sns:
-            with kb_controller.pressed(Key.ctrl): kb_controller.press('a'); kb_controller.release('a')
-            time.sleep(0.1) 
-            self.root.after(0, lambda x=sn: [self.root.clipboard_clear(), self.root.clipboard_append(x)])
-            time.sleep(e1)
-            with kb_controller.pressed(Key.ctrl): kb_controller.press('v'); kb_controller.release('v')
+            # 1. 全选
+            kb_controller.press(Key.ctrl)
+            kb_controller.press('a')
+            kb_controller.release('a')
             time.sleep(0.1)
-            kb_controller.press(Key.enter); kb_controller.release(Key.enter)
-            if double_mode:
-                time.sleep(0.1); kb_controller.press(Key.enter); kb_controller.release(Key.enter); time.sleep(e2)
-            else: time.sleep(0.4)
-            if sn not in BARCODE_HISTORY:
-                BARCODE_HISTORY.add(sn)
-                with open(HISTORY_FILE, "a", encoding="utf-8") as f: f.write(f"{sn}\n")
-            self.root.after(0, self.add_log, sn, "auto")
-        self.root.after(0, lambda: [self.root.attributes("-alpha", 0.92), winsound.Beep(1000, 300)])
-
-    def trigger_alarm(self, is_dup):
-        if is_dup: winsound.Beep(1200, 600)
-        def flash(s):
-            if s < 6 and is_dup:
-                c = "#ffffff" if s % 2 == 0 else "#ff5252"
-                self.main_f.config(bg=c); self.info_f.config(bg=c)
-                self.root.after(250, lambda: flash(s + 1))
-            else:
-                final_bg = "#ffcccb" if is_dup else "#90ee90"
-                self.main_f.config(bg=final_bg); self.info_f.config(bg=final_bg)
-        flash(0)
-
-    def add_log(self, code, status_tag=None):
-        self.log_text.config(state=tk.NORMAL)
-        ts = time.strftime("%H:%M:%S")
-        self.log_count += 1
-        tag = status_tag if status_tag else None
-        status = {"dup": "DUP", "auto": "AUTO"}.get(status_tag, "OK")
-        self.log_text.insert(tk.END, f"[{self.log_count:02d}] {ts} {status}: {code}\n", tag)
-        self.log_text.see(tk.END); self.log_text.config(state=tk.DISABLED)
-        self.info_lbl.config(text=f"Total:{len(BARCODE_HISTORY)}")
+            # 2. 剪贴板
+            self.root.after(0, lambda x=sn: [self.root.clipboard_clear(), self.root.clipboard_append(x)])
+            time.sleep(0.1)
+            # 3. 粘贴
+            kb_controller.press('v')
+            kb_controller.release('v')
+            kb_controller.release(Key.ctrl)
+            time.sleep(0.2)
+            # 4. 回车逻辑
+            kb_controller.press(Key.enter)
+            kb_controller.release(Key.enter)
+            time.sleep(self.s_double_enter.get())
+            kb_controller.press(Key.enter)
+            kb_controller.release(Key.enter)
+            time.sleep(self.s_enter_speed.get())
+        
+        self.root.after(0, lambda: [self.root.attributes("-alpha", 0.9), winsound.Beep(1000, 300)])
 
     def update_monitor(self, code, is_dup):
-        self.trigger_alarm(is_dup)
+        ts = time.strftime("%H:%M:%S")
+        c = self.dark_red if is_dup else self.dark_green
+        self.status_bar.config(text=f"{'!! 重复' if is_dup else 'OK扫描'}: {code}", bg=c)
+        self.log_area.config(bg=c)
+        self.log_area.insert(tk.END, f"[{ts}] {'DUP' if is_dup else 'PASS'} -> {code}\n")
+        self.log_area.see(tk.END)
         if is_dup:
-            self.add_log(code, "dup")
-            # 只有勾选 PB 开关时才拉回
-            if self.use_pb.get():
-                with kb_controller.pressed(Key.shift): kb_controller.press(Key.tab); kb_controller.release(Key.tab)
-                time.sleep(0.2); with kb_controller.pressed(Key.ctrl): kb_controller.press('a'); kb_controller.release('a')
-        else:
-            self.add_log(code)
-            with open(HISTORY_FILE, "a", encoding="utf-8") as f: f.write(f"{code}\n")
+            winsound.Beep(1500, 600)
+            if self.enable_pullback.get():
+                # 显式拆分 Shift+Tab
+                with kb_controller.pressed(Key.shift):
+                    kb_controller.press(Key.tab)
+                    kb_controller.release(Key.tab)
+                time.sleep(0.2)
+                # 显式拆分 Ctrl+A
+                with kb_controller.pressed(Key.ctrl):
+                    kb_controller.press('a')
+                    kb_controller.release('a')
 
-    def start_move(self, event): self.x, self.y = event.x, event.y
-    def do_move(self, event): self.root.geometry(f"+{self.root.winfo_x()+event.x-self.x}+{self.root.winfo_y()+event.y-self.y}")
-    def minimize(self):
-        self.root.overrideredirect(False); self.root.iconify()
-        self.root.bind("<FocusIn>", lambda e: [self.root.overrideredirect(True), self.root.unbind("<FocusIn>")] )
-    def safe_exit(self): self.root.quit(); os._exit(0)
+# --- 系统工具 ---
+def get_file_md5(f):
+    if not os.path.exists(f): return None
+    h = hashlib.md5()
+    with open(f, "rb") as _f:
+        for c in iter(lambda: _f.read(4096), b""): h.update(c)
+    return h.hexdigest()
+
+def check_update_and_login():
+    login_w = tk.Tk()
+    login_w.title("验证")
+    login_w.geometry("240x120")
+    login_w.eval('tk::PlaceWindow . center')
+    tk.Label(login_w, text="授权码:").pack(pady=5)
+    pw_ent = tk.Entry(login_w, show="*")
+    pw_ent.pack()
+    pw_ent.focus_set()
+
+    def do_login():
+        try:
+            with open(LAN_PWD_PATH, "r", encoding="utf-8-sig") as f:
+                valid_pwd = f.read().strip()
+                if pw_ent.get() == valid_pwd:
+                    login_w.withdraw()
+                    src = LAN_UPDATE_SRC
+                    cur = sys.executable if getattr(sys, 'frozen', False) else os.path.abspath(__file__)
+                    if os.path.exists(src) and get_file_md5(src) != get_file_md5(cur):
+                        if messagebox.askyesno("更新", "检测到新版本，是否升级？"):
+                            with open("updater.bat", "w") as f:
+                                f.write(f'@echo off\ntimeout /t 1\ncopy /y "{src}" "{cur}"\nstart "" "{cur}"\ndel %0')
+                            subprocess.Popen("updater.bat", shell=True)
+                            sys.exit()
+                    login_w.destroy()
+                    start_main_app()
+                else:
+                    messagebox.showerror("!", "授权码错误")
+        except:
+            messagebox.showerror("!", "内网服务器不可达")
+
+    tk.Button(login_w, text="登录", command=do_login, width=10).pack(pady=10)
+    login_w.bind('<Return>', lambda e: do_login())
+    login_w.mainloop()
+
+def start_main_app():
+    global app
+    root = tk.Tk()
+    app = FinalProApp(root)
+    threading.Thread(target=lambda: keyboard.Listener(on_press=on_press).start(), daemon=True).start()
+    root.mainloop()
 
 def on_press(key):
     global LAST_KEY_TIME, SCAN_BUFFER
-    now = time.time(); interval = now - LAST_KEY_TIME; LAST_KEY_TIME = now
+    now = time.time()
+    interval = now - LAST_KEY_TIME
+    LAST_KEY_TIME = now
     try:
         if key == Key.enter:
-            code = "".join(SCAN_BUFFER).strip()
-            if code:
-                is_dup = code in BARCODE_HISTORY
-                if not is_dup: BARCODE_HISTORY.add(code)
-                app.root.after(0, app.update_monitor, code, is_dup)
+            barcode = "".join(SCAN_BUFFER).strip()
+            if barcode:
+                is_dup = barcode in BARCODE_HISTORY
+                if not is_dup:
+                    BARCODE_HISTORY.add(barcode)
+                app.root.after(0, lambda: app.update_monitor(barcode, is_dup))
             SCAN_BUFFER = []
         elif hasattr(key, 'char') and key.char:
-            if interval > SCAN_SPEED_THRESHOLD: SCAN_BUFFER = []
+            if interval > SCAN_SPEED_THRESHOLD:
+                SCAN_BUFFER = []
             SCAN_BUFFER.append(key.char)
-    except: pass
+    except:
+        pass
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    app = UltraThinMonitor(root)
-    threading.Thread(target=lambda: keyboard.Listener(on_press=on_press).start(), daemon=True).start()
-    root.mainloop()
+    check_update_and_login()
