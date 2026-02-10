@@ -20,14 +20,16 @@ kb_controller = Controller()
 if os.path.exists(HISTORY_FILE):
     try:
         with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-            BARCODE_HISTORY = set(line.strip() for line in f if line.strip())
+            for line in f:
+                if line.strip():
+                    BARCODE_HISTORY.add(line.strip())
     except:
         pass
 
 class UltimateMiniGuard:
     def __init__(self, root):
         self.root = root
-        self.root.title("智能助手 v4.1")
+        self.root.title("智能助手 v4.2")
         self.root.geometry("450x240") 
         self.root.attributes("-topmost", True)
         
@@ -82,7 +84,6 @@ class UltimateMiniGuard:
         self.info_lbl.pack(side=tk.RIGHT, padx=5)
 
     def get_clipboard_text(self):
-        """增强型安全剪贴板读取"""
         try:
             if ctypes.windll.user32.OpenClipboard(0):
                 handle = ctypes.windll.user32.GetClipboardData(13)
@@ -108,77 +109,76 @@ class UltimateMiniGuard:
         
         try:
             lines = sorted([s.strip() for s in str(raw_text).replace('\r\n', '\n').split('\n') if s.strip()])
-        except:
-            return
+            if not lines: return
+
+            self.pv = tk.Toplevel(self.root)
+            self.pv.title(f"自动过站预览: {len(lines)}条")
+            self.pv.geometry("440x450")
+            self.pv.attributes("-topmost", True)
             
-        if not lines:
-            return
+            self.tree = ttk.Treeview(self.pv, columns=("check", "barcode"), show="headings")
+            self.tree.heading("check", text="状态")
+            self.tree.heading("barcode", text="条码内容(已排序)")
+            self.tree.column("check", width=50, anchor="center")
+            self.tree.column("barcode", width=320)
+            self.tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
 
-        self.pv = tk.Toplevel(self.root)
-        self.pv.title(f"自动过站预览: {len(lines)}条")
-        self.pv.geometry("440x450")
-        self.pv.attributes("-topmost", True)
+            for s in lines:
+                self.tree.insert("", tk.END, values=("☐", s))
+
+            self.tree.bind("<ButtonRelease-1>", self.on_tree_click)
+            self.pv.bind("<Delete>", lambda e: self.delete_sel())
+
+            btn_f = tk.Frame(self.pv)
+            btn_f.pack(fill=tk.X, pady=5)
+            
+            tk.Button(btn_f, text="🗑️删除", command=self.delete_sel, font=("微软雅黑", 8)).pack(side=tk.LEFT, expand=True, padx=2)
+            tk.Button(btn_f, text="☑️全/反选", command=self.toggle_all, font=("微软雅黑", 8)).pack(side=tk.LEFT, expand=True, padx=2)
+            tk.Button(btn_f, text="🧹清空", command=self.clear_list, font=("微软雅黑", 8), fg="brown").pack(side=tk.LEFT, expand=True, padx=2)
+            tk.Button(btn_f, text="🚀启动过站", bg="#4caf50", fg="white", font=("微软雅黑", 9, "bold"),
+                      command=self.prepare_and_run).pack(side=tk.LEFT, expand=True, padx=2)
+        except Exception as e:
+            messagebox.showerror("错误", f"子窗口加载失败: {e}")
+
+    def on_tree_click(self, event):
+        item = self.tree.identify_row(event.y)
+        if item:
+            cur_vals = list(self.tree.item(item, "values"))
+            new_status = "☑" if cur_vals[0] == "☐" else "☐"
+            self.tree.item(item, values=(new_status, cur_vals[1]))
+
+    def toggle_all(self):
+        children = self.tree.get_children()
+        if not children: return
+        first_item = self.tree.item(children[0], "values")
+        new_s = "☑" if first_item[0] == "☐" else "☐"
+        for i in children:
+            v = list(self.tree.item(i, "values"))
+            self.tree.item(i, values=(new_s, v[1]))
+
+    def delete_sel(self):
+        for i in self.tree.selection():
+            self.tree.delete(i)
+        self.pv.title(f"自动过站预览: {len(self.tree.get_children())}条")
+
+    def clear_list(self):
+        for i in self.tree.get_children():
+            self.tree.delete(i)
+        self.pv.title("自动过站预览: 0条")
+
+    def prepare_and_run(self):
+        # 核心修复：在主线程提取所有未勾选条码，脱离 Treeview 依赖
+        to_run = []
+        for i in self.tree.get_children():
+            v = self.tree.item(i, "values")
+            if v[0] == "☐": # 只录入未打叉项
+                to_run.append(v[1])
         
-        self.tree = ttk.Treeview(self.pv, columns=("check", "barcode"), show="headings")
-        self.tree.heading("check", text="状态")
-        self.tree.heading("barcode", text="条码内容(已自动排序)")
-        self.tree.column("check", width=50, anchor="center")
-        self.tree.column("barcode", width=320)
-        self.tree.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
-
-        for s in lines:
-            self.tree.insert("", tk.END, values=("☐", s))
-
-        def on_click(event):
-            item = self.tree.identify_row(event.y)
-            if item:
-                vals = list(self.tree.item(item, "values"))
-                vals[0] = "☑" if vals[0] == "☐" else "☐"
-                self.tree.item(item, values=vals)
-        self.tree.bind("<ButtonRelease-1>", on_click)
-
-        def toggle_all():
-            children = self.tree.get_children()
-            if not children:
-                return
-            first_val = self.tree.item(children[0], "values")[0]
-            new_s = "☑" if first_val == "☐" else "☐"
-            for i in children:
-                v = list(self.tree.item(i, "values"))
-                v[0] = new_s
-                self.tree.item(i, values=v)
-
-        def delete_sel():
-            for i in self.tree.selection():
-                self.tree.delete(i)
-            self.pv.title(f"自动过站预览: {len(self.tree.get_children())}条")
-
-        def clear_list():
-            for i in self.tree.get_children():
-                self.tree.delete(i)
-            self.pv.title("自动过站预览: 0条")
-
-        btn_f = tk.Frame(self.pv)
-        btn_f.pack(fill=tk.X, pady=5)
-        tk.Button(btn_f, text="🗑️删除", command=delete_sel, font=("微软雅黑", 8)).pack(side=tk.LEFT, expand=True, padx=2)
-        tk.Button(btn_f, text="☑️全/反选", command=toggle_all, font=("微软雅黑", 8)).pack(side=tk.LEFT, expand=True, padx=2)
-        tk.Button(btn_f, text="🧹清空", command=clear_list, font=("微软雅黑", 8), fg="brown").pack(side=tk.LEFT, expand=True, padx=2)
-        
-        def start_run():
-            to_run = []
-            for i in self.tree.get_children():
-                v = self.tree.item(i, "values")
-                if v[0] == "☐":
-                    to_run.append(v[1])
-            if to_run:
-                self.execute_auto(to_run)
-                self.pv.destroy()
-
-        tk.Button(btn_f, text="🚀启动过站", bg="#4caf50", fg="white", font=("微软雅黑", 9, "bold"),
-                  command=start_run).pack(side=tk.LEFT, expand=True, padx=2)
-
-    def execute_auto(self, sns):
-        threading.Thread(target=self._auto_run, args=(sns,), daemon=True).start()
+        if to_run:
+            self.pv.destroy() # 运行前关闭预览窗，释放 UI 资源
+            threading.Thread(target=self._auto_run, args=(to_run,), daemon=True).start()
+        else:
+            messagebox.showwarning("提示", "没有可录入的条码（已被全部排除）")
 
     def _auto_run(self, sns):
         time.sleep(1.5)
@@ -187,25 +187,37 @@ class UltimateMiniGuard:
             mid = float(self.spin_mid.get())
             e2 = float(self.spin_e2.get())
             for sn in sns:
+                # 动作 1: 全选
                 with kb_controller.pressed(Key.ctrl):
                     kb_controller.press('a')
                     kb_controller.release('a')
                 time.sleep(0.1)
-                self.root.clipboard_clear()
-                self.root.clipboard_append(sn)
-                self.root.update()
+                
+                # 动作 2: 剪贴板写入并同步
+                try:
+                    self.root.clipboard_clear()
+                    self.root.clipboard_append(sn)
+                    self.root.update()
+                except: pass
+                
                 time.sleep(e1)
+                
+                # 动作 3: 粘贴
                 with kb_controller.pressed(Key.ctrl):
                     kb_controller.press('v')
                     kb_controller.release('v')
                 time.sleep(0.1)
+                
+                # 动作 4: 回车逻辑
                 kb_controller.press(Key.enter)
                 kb_controller.release(Key.enter)
                 if self.use_double_enter.get():
                     time.sleep(mid)
                     kb_controller.press(Key.enter)
                     kb_controller.release(Key.enter)
+                
                 time.sleep(e2)
+                
                 if sn not in BARCODE_HISTORY:
                     BARCODE_HISTORY.add(sn)
                     with open(HISTORY_FILE, "a", encoding="utf-8") as f:
@@ -272,8 +284,7 @@ def on_press(key):
     now = time.time()
     try:
         char = key.char if hasattr(key, 'char') else ('\n' if key == Key.enter else None)
-        if not char:
-            return
+        if not char: return
         if now - LAST_KEY_TIME < SCAN_SPEED_THRESHOLD:
             if char == '\n':
                 barcode = "".join(SCAN_BUFFER).strip()
