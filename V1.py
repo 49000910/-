@@ -32,12 +32,12 @@ class UltimateMiniGuard:
         self.root.attributes("-alpha", self.normal_alpha)
         self.root.overrideredirect(True) 
 
-        self.current_sns = [] 
+        self.current_sns = [] # 待录入列表
 
         self.clr_title_bar, self.clr_head = "#80CBC4", "#B2DFDB"
         self.clr_default_bg = "#ECEFF1"
-        self.clr_ok, self.clr_ok_log = "#A5D6A7", "#E8F5E9"  # 浅绿背景
-        self.clr_dup, self.clr_dup_log = "#EF9A9A", "#FFEBEE" # 浅红背景
+        self.clr_ok, self.clr_ok_log = "#A5D6A7", "#E8F5E9"
+        self.clr_dup, self.clr_dup_log = "#EF9A9A", "#FFEBEE"
         
         self.root.configure(bg=self.clr_default_bg)
 
@@ -75,7 +75,7 @@ class UltimateMiniGuard:
         tk.Button(self.ctrl_f, text="批量录入窗", command=self.open_sub_win, bg="#CFD8DC", font=("微软雅黑", 8), relief=tk.FLAT).pack(side=tk.LEFT, padx=2, expand=True, fill=tk.X)
         tk.Button(self.ctrl_f, text="清", command=self.clear_history, bg="#FFCCBC", fg="#D84315", font=("微软雅黑", 8, "bold"), relief=tk.FLAT, width=3).pack(side=tk.RIGHT, padx=2)
 
-        # --- 日志 (背景色会联动) ---
+        # --- 日志 ---
         self.log_text = tk.Text(self.root, font=("Consolas", 8), bg="#ffffff", height=7, bd=0, padx=5)
         self.log_text.pack(fill=tk.BOTH, expand=True, padx=2, pady=1)
         self.log_text.tag_config("dup_text", foreground="#C62828", font=("Consolas", 8, "bold"))
@@ -102,26 +102,26 @@ class UltimateMiniGuard:
         if barcode in BARCODE_HISTORY:
             if not is_batch: 
                 winsound.Beep(1000, 300)
-                # 联动变色：主窗+Log窗变浅红
                 self.root.configure(bg=self.clr_dup)
                 self.log_text.configure(bg=self.clr_dup_log)
                 self.info_lbl.configure(bg=self.clr_dup)
                 self.log_text.insert("1.0", f"[重] {barcode}\n", "dup_text")
                 if self.use_pb.get():
-                    with kb_controller.pressed(Key.shift): kb_controller.press(Key.tab); kb_controller.release(Key.tab)
-                    time.sleep(0.01); with kb_controller.pressed(Key.ctrl): kb_controller.press('a'); kb_controller.release('a')
+                    with kb_controller.pressed(Key.shift):
+                        kb_controller.press(Key.tab)
+                        kb_controller.release(Key.tab)
+                    time.sleep(0.01)
+                    with kb_controller.pressed(Key.ctrl):
+                        kb_controller.press('a')
+                        kb_controller.release('a')
         else:
-            # 联动变色：主窗+Log窗变浅绿
             self.root.configure(bg=self.clr_ok)
             self.log_text.configure(bg=self.clr_ok_log)
             self.info_lbl.configure(bg=self.clr_ok)
-            
             BARCODE_HISTORY.add(barcode)
             with open(HISTORY_FILE, "a", encoding="utf-8") as f: f.write(barcode + "\n")
-            
-            prefix = "[批]" if is_batch else "[OK]"
-            tag = "batch_text" if is_batch else None
-            self.log_text.insert("1.0", f"{prefix} {barcode}\n", tag)
+            pfx, tag = ("[批]", "batch_text") if is_batch else ("[OK]", None)
+            self.log_text.insert("1.0", f"{pfx} {barcode}\n", tag)
             self.info_lbl.config(text=f"Cnt: {len(BARCODE_HISTORY)}")
         self.log_text.see("1.0")
 
@@ -182,7 +182,9 @@ class UltimateMiniGuard:
         for sn in sns:
             kb_controller.type(sn); time.sleep(e_del)
             kb_controller.press(Key.enter); kb_controller.release(Key.enter)
-            if self.use_double_enter.get(): time.sleep(0.05); kb_controller.press(Key.enter); kb_controller.release(Key.enter)
+            if self.use_double_enter.get(): 
+                time.sleep(0.05)
+                kb_controller.press(Key.enter); kb_controller.release(Key.enter)
             self.root.after(0, lambda s=sn: self.handle_scan(s, is_batch=True))
             time.sleep(m_del)
         self.root.after(0, lambda: self.root.attributes("-alpha", self.normal_alpha))
