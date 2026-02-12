@@ -56,21 +56,19 @@ class UltimateMiniGuard:
         self.params_f.pack(fill=tk.X)
         spin_opt = {"font": ("Consolas", 8), "width": 3, "from_": 0.0, "to": 5.0, "increment": 0.05}
         
-        self.cb_pb = tk.Checkbutton(self.params_f, text="PB", variable=tk.BooleanVar(value=True), font=("微软雅黑", 8))
-        self.use_pb = self.cb_pb.cget("variable")
+        self.pb_var = tk.BooleanVar(value=True) # PB默认开启
+        self.cb_pb = tk.Checkbutton(self.params_f, text="PB", variable=self.pb_var, font=("微软雅黑", 8))
         self.cb_pb.pack(side=tk.LEFT)
         
-        self.cb_r2 = tk.Checkbutton(self.params_f, text="回2", variable=tk.BooleanVar(value=False), font=("微软雅黑", 8))
-        self.use_double_enter = self.cb_r2.cget("variable")
+        self.r2_var = tk.BooleanVar(value=False)
+        self.cb_r2 = tk.Checkbutton(self.params_f, text="回2", variable=self.r2_var, font=("微软雅黑", 8))
         self.cb_r2.pack(side=tk.LEFT)
         
-        self.lbl_e = tk.Label(self.params_f, text="E:", font=("微软雅黑", 8))
-        self.lbl_e.pack(side=tk.LEFT)
+        tk.Label(self.params_f, text="E:", font=("微软雅黑", 8)).pack(side=tk.LEFT)
         self.spin_e1 = tk.Spinbox(self.params_f, **spin_opt)
         self.spin_e1.delete(0, "end"); self.spin_e1.insert(0, "0.01"); self.spin_e1.pack(side=tk.LEFT)
 
-        self.lbl_d = tk.Label(self.params_f, text="待:", font=("微软雅黑", 8))
-        self.lbl_d.pack(side=tk.LEFT)
+        tk.Label(self.params_f, text="待:", font=("微软雅黑", 8)).pack(side=tk.LEFT)
         self.spin_mid = tk.Spinbox(self.params_f, **spin_opt)
         self.spin_mid.delete(0, "end"); self.spin_mid.insert(0, "0.85"); self.spin_mid.pack(side=tk.LEFT)
         
@@ -82,8 +80,7 @@ class UltimateMiniGuard:
         self.log_text = tk.Text(self.root, font=("Consolas", 8), height=7, bd=0, padx=5)
         self.log_text.pack(fill=tk.BOTH, expand=True, padx=2, pady=1)
         
-        # --- 字体 Tag 配置 ---
-        self.log_text.tag_config("curr_txt", font=("Consolas", 10, "bold")) # 当前条码放大
+        self.log_text.tag_config("curr_txt", font=("Consolas", 10, "bold")) 
         self.log_text.tag_config("dup_txt", foreground="#C62828")
         self.log_text.tag_config("bat_txt", foreground="#1B5E20")
 
@@ -103,7 +100,7 @@ class UltimateMiniGuard:
         self.title_bar.configure(bg=t["title"])
         self.title_lbl.configure(bg=t["title"], fg=t["title_fg"])
         self.params_f.configure(bg=t["head"])
-        for w in [self.cb_pb, self.cb_r2, self.lbl_e, self.lbl_d]: w.configure(bg=t["head"], activebackground=t["head"])
+        for w in [self.cb_pb, self.cb_r2]: w.configure(bg=t["head"], activebackground=t["head"])
         self.log_text.configure(bg=t["txt_bg"])
 
     def clear_history(self):
@@ -111,21 +108,20 @@ class UltimateMiniGuard:
             BARCODE_HISTORY.clear()
             if os.path.exists(HISTORY_FILE): os.remove(HISTORY_FILE)
             self.set_theme_color("def"); self.log_text.delete("1.0", tk.END)
-            self.log_text.insert("1.0", "[系统] 历史已清空\n")
             self.info_lbl.config(text="Cnt: 0")
 
     def handle_scan(self, barcode, is_batch=False):
-        # 移除之前所有行的放大效果
         self.log_text.tag_remove("curr_txt", "1.0", tk.END)
-        
         if barcode in BARCODE_HISTORY:
             if not is_batch: 
                 winsound.Beep(1000, 300); self.set_theme_color("dup")
                 self.log_text.insert("1.0", f"[重] {barcode}\n", ("curr_txt", "dup_txt"))
-                if self.use_pb.get():
-                    with kb_controller.pressed(Key.shift): kb_controller.press(Key.tab); kb_controller.release(Key.tab)
-                    time.sleep(0.01); 
-                    with kb_controller.pressed(Key.ctrl): kb_controller.press('a'); kb_controller.release('a')
+                if self.pb_var.get():
+                    with kb_controller.pressed(Key.shift):
+                        kb_controller.press(Key.tab); kb_controller.release(Key.tab)
+                    time.sleep(0.01)
+                    with kb_controller.pressed(Key.ctrl):
+                        kb_controller.press('a'); kb_controller.release('a')
         else:
             self.set_theme_color("ok")
             BARCODE_HISTORY.add(barcode)
@@ -155,7 +151,8 @@ class UltimateMiniGuard:
         tk.Button(f, text="1. 读取剪贴板", command=self.load_from_clipboard, bg="#B3E5FC", font=("微软雅黑", 8)).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
         tk.Button(f, text="清", command=self.clear_sub_list, bg="#FFCCBC", font=("微软雅黑", 8, "bold"), width=4).pack(side=tk.RIGHT, padx=1)
         self.listbox = tk.Listbox(self.sub_win, font=("Consolas", 9), bd=1); self.listbox.pack(fill=tk.BOTH, expand=True)
-        self.run_btn = tk.Button(self.sub_win, text="2. 执行录入", bg="#C8E6C9", font=("微软雅黑", 9, "bold"), command=self.confirm_and_run); self.run_btn.pack(fill=tk.X)
+        self.run_btn = tk.Button(self.sub_win, text="2. 执行录入", bg="#C8E6C9", font=("微软雅黑", 9, "bold"), command=self.confirm_and_run)
+        self.run_btn.pack(fill=tk.X)
         self.update_sub_ui()
 
     def load_from_clipboard(self):
@@ -176,17 +173,23 @@ class UltimateMiniGuard:
 
     def confirm_and_run(self):
         if not self.current_sns: return
+        # 在主线程提前读取参数值，防止子线程读取失败
+        try:
+            e_del = float(self.spin_e1.get())
+            m_del = float(self.spin_mid.get())
+            r2_val = self.r2_var.get()
+        except: e_del, m_del, r2_val = 0.01, 0.85, False
+        
         sns = list(self.current_sns); self.sub_win.destroy()
         self.root.attributes("-alpha", self.work_alpha)
-        threading.Thread(target=self._auto_core, args=(sns,), daemon=True).start()
+        threading.Thread(target=self._auto_core, args=(sns, e_del, m_del, r2_val), daemon=True).start()
 
-    def _auto_core(self, sns):
+    def _auto_core(self, sns, e_del, m_del, r2_val):
         time.sleep(3) 
-        e_del, m_del = float(self.spin_e1.get()), float(self.spin_mid.get())
         for sn in sns:
             kb_controller.type(sn); time.sleep(e_del)
             kb_controller.press(Key.enter); kb_controller.release(Key.enter)
-            if self.use_double_enter.get(): 
+            if r2_val: 
                 time.sleep(0.05); kb_controller.press(Key.enter); kb_controller.release(Key.enter)
             self.root.after(0, lambda s=sn: self.handle_scan(s, is_batch=True))
             time.sleep(m_del)
