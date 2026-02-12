@@ -32,96 +32,106 @@ class UltimateMiniGuard:
         self.root.attributes("-alpha", self.normal_alpha)
         self.root.overrideredirect(True) 
 
-        self.current_sns = [] # 待录入列表
-
-        self.clr_title_bar, self.clr_head = "#80CBC4", "#B2DFDB"
-        self.clr_default_bg = "#ECEFF1"
-        self.clr_ok, self.clr_ok_log = "#A5D6A7", "#E8F5E9"
-        self.clr_dup, self.clr_dup_log = "#EF9A9A", "#FFEBEE"
+        self.current_sns = [] 
         
-        self.root.configure(bg=self.clr_default_bg)
-
-        # --- 标题栏 ---
-        self.title_bar = tk.Frame(self.root, bg=self.clr_title_bar, height=22)
+        # --- 配色方案 ---
+        self.themes = {
+            "def": {"bg": "#ECEFF1", "head": "#CFD8DC", "title": "#90A4AE", "txt_bg": "#FFFFFF", "title_fg": "#37474F"},
+            "ok":  {"bg": "#A5D6A7", "head": "#A5D6A7", "title": "#66BB6A", "txt_bg": "#E8F5E9", "title_fg": "#1B5E20"},
+            "dup": {"bg": "#EF9A9A", "head": "#EF9A9A", "title": "#E57373", "txt_bg": "#FFEBEE", "title_fg": "#FFFFFF"}
+        }
+        
+        # --- UI 构建 ---
+        self.title_bar = tk.Frame(self.root, height=22)
         self.title_bar.pack(fill=tk.X)
-        tk.Label(self.title_bar, text=" 采集助手", fg="#004D40", bg=self.clr_title_bar, font=("微软雅黑", 8, "bold")).pack(side=tk.LEFT)
+        self.title_lbl = tk.Label(self.title_bar, text=" 采集助手", font=("微软雅黑", 8, "bold"))
+        self.title_lbl.pack(side=tk.LEFT)
         tk.Button(self.title_bar, text="✕", command=root.quit, bg="#FF7043", fg="white", font=("Arial", 7, "bold"), bd=0, padx=5).pack(side=tk.RIGHT)
 
-        for widget in [self.title_bar, self.root]:
+        for widget in [self.title_bar, self.title_lbl, self.root]:
             widget.bind("<Button-1>", self.start_move)
             widget.bind("<B1-Motion>", self.do_move)
 
-        # --- 参数区 ---
-        self.params_f = tk.Frame(self.root, bg=self.clr_head, pady=1)
+        self.params_f = tk.Frame(self.root, pady=1)
         self.params_f.pack(fill=tk.X)
         spin_opt = {"font": ("Consolas", 8), "width": 3, "from_": 0.0, "to": 5.0, "increment": 0.05}
         
-        self.use_pb = tk.BooleanVar(value=True)
-        tk.Checkbutton(self.params_f, text="PB", variable=self.use_pb, bg=self.clr_head, font=("微软雅黑", 8)).pack(side=tk.LEFT)
-        self.use_double_enter = tk.BooleanVar(value=False)
-        tk.Checkbutton(self.params_f, text="回2", variable=self.use_double_enter, bg=self.clr_head, font=("微软雅黑", 8)).pack(side=tk.LEFT)
+        self.cb_pb = tk.Checkbutton(self.params_f, text="PB", variable=tk.BooleanVar(value=True), font=("微软雅黑", 8))
+        self.use_pb = self.cb_pb.cget("variable")
+        self.cb_pb.pack(side=tk.LEFT)
         
-        tk.Label(self.params_f, text="E:", bg=self.clr_head, font=("微软雅黑", 8)).pack(side=tk.LEFT)
+        self.cb_r2 = tk.Checkbutton(self.params_f, text="回2", variable=tk.BooleanVar(value=False), font=("微软雅黑", 8))
+        self.use_double_enter = self.cb_r2.cget("variable")
+        self.cb_r2.pack(side=tk.LEFT)
+        
+        self.lbl_e = tk.Label(self.params_f, text="E:", font=("微软雅黑", 8))
+        self.lbl_e.pack(side=tk.LEFT)
         self.spin_e1 = tk.Spinbox(self.params_f, **spin_opt)
         self.spin_e1.delete(0, "end"); self.spin_e1.insert(0, "0.01"); self.spin_e1.pack(side=tk.LEFT)
 
-        tk.Label(self.params_f, text="待:", bg=self.clr_head, font=("微软雅黑", 8)).pack(side=tk.LEFT)
+        self.lbl_d = tk.Label(self.params_f, text="待:", font=("微软雅黑", 8))
+        self.lbl_d.pack(side=tk.LEFT)
         self.spin_mid = tk.Spinbox(self.params_f, **spin_opt)
         self.spin_mid.delete(0, "end"); self.spin_mid.insert(0, "0.85"); self.spin_mid.pack(side=tk.LEFT)
         
-        # --- 控制区 ---
-        self.ctrl_f = tk.Frame(self.root, bg=self.clr_default_bg)
-        self.ctrl_f.pack(fill=tk.X, pady=1)
+        self.ctrl_f = tk.Frame(self.root, pady=1)
+        self.ctrl_f.pack(fill=tk.X)
         tk.Button(self.ctrl_f, text="批量录入窗", command=self.open_sub_win, bg="#CFD8DC", font=("微软雅黑", 8), relief=tk.FLAT).pack(side=tk.LEFT, padx=2, expand=True, fill=tk.X)
         tk.Button(self.ctrl_f, text="清", command=self.clear_history, bg="#FFCCBC", fg="#D84315", font=("微软雅黑", 8, "bold"), relief=tk.FLAT, width=3).pack(side=tk.RIGHT, padx=2)
 
-        # --- 日志 ---
-        self.log_text = tk.Text(self.root, font=("Consolas", 8), bg="#ffffff", height=7, bd=0, padx=5)
+        self.log_text = tk.Text(self.root, font=("Consolas", 8), height=7, bd=0, padx=5)
         self.log_text.pack(fill=tk.BOTH, expand=True, padx=2, pady=1)
-        self.log_text.tag_config("dup_text", foreground="#C62828", font=("Consolas", 8, "bold"))
-        self.log_text.tag_config("batch_text", foreground="#1B5E20")
+        
+        # --- 字体 Tag 配置 ---
+        self.log_text.tag_config("curr_txt", font=("Consolas", 10, "bold")) # 当前条码放大
+        self.log_text.tag_config("dup_txt", foreground="#C62828")
+        self.log_text.tag_config("bat_txt", foreground="#1B5E20")
 
-        self.info_lbl = tk.Label(self.root, text=f"Cnt: {len(BARCODE_HISTORY)}", font=("Arial", 7), bg=self.clr_default_bg)
+        self.info_lbl = tk.Label(self.root, text=f"Cnt: {len(BARCODE_HISTORY)}", font=("Arial", 7))
         self.info_lbl.pack(side=tk.RIGHT, padx=2)
 
+        self.set_theme_color("def")
         self.listener = keyboard.Listener(on_press=self.on_press); self.listener.start()
 
     def start_move(self, event): self.x = event.x; self.y = event.y
     def do_move(self, event):
         self.root.geometry(f"+{self.root.winfo_x()+(event.x-self.x)}+{self.root.winfo_y()+(event.y-self.y)}")
 
+    def set_theme_color(self, type_key):
+        t = self.themes[type_key]
+        for w in [self.root, self.ctrl_f, self.info_lbl]: w.configure(bg=t["bg"])
+        self.title_bar.configure(bg=t["title"])
+        self.title_lbl.configure(bg=t["title"], fg=t["title_fg"])
+        self.params_f.configure(bg=t["head"])
+        for w in [self.cb_pb, self.cb_r2, self.lbl_e, self.lbl_d]: w.configure(bg=t["head"], activebackground=t["head"])
+        self.log_text.configure(bg=t["txt_bg"])
+
     def clear_history(self):
-        if messagebox.askyesno("确认", "清空所有已采集历史记录？"):
+        if messagebox.askyesno("确认", "清空所有采集历史？"):
             BARCODE_HISTORY.clear()
             if os.path.exists(HISTORY_FILE): os.remove(HISTORY_FILE)
-            self.log_text.configure(bg="#ffffff")
+            self.set_theme_color("def"); self.log_text.delete("1.0", tk.END)
             self.log_text.insert("1.0", "[系统] 历史已清空\n")
             self.info_lbl.config(text="Cnt: 0")
 
     def handle_scan(self, barcode, is_batch=False):
+        # 移除之前所有行的放大效果
+        self.log_text.tag_remove("curr_txt", "1.0", tk.END)
+        
         if barcode in BARCODE_HISTORY:
             if not is_batch: 
-                winsound.Beep(1000, 300)
-                self.root.configure(bg=self.clr_dup)
-                self.log_text.configure(bg=self.clr_dup_log)
-                self.info_lbl.configure(bg=self.clr_dup)
-                self.log_text.insert("1.0", f"[重] {barcode}\n", "dup_text")
+                winsound.Beep(1000, 300); self.set_theme_color("dup")
+                self.log_text.insert("1.0", f"[重] {barcode}\n", ("curr_txt", "dup_txt"))
                 if self.use_pb.get():
-                    with kb_controller.pressed(Key.shift):
-                        kb_controller.press(Key.tab)
-                        kb_controller.release(Key.tab)
-                    time.sleep(0.01)
-                    with kb_controller.pressed(Key.ctrl):
-                        kb_controller.press('a')
-                        kb_controller.release('a')
+                    with kb_controller.pressed(Key.shift): kb_controller.press(Key.tab); kb_controller.release(Key.tab)
+                    time.sleep(0.01); 
+                    with kb_controller.pressed(Key.ctrl): kb_controller.press('a'); kb_controller.release('a')
         else:
-            self.root.configure(bg=self.clr_ok)
-            self.log_text.configure(bg=self.clr_ok_log)
-            self.info_lbl.configure(bg=self.clr_ok)
+            self.set_theme_color("ok")
             BARCODE_HISTORY.add(barcode)
             with open(HISTORY_FILE, "a", encoding="utf-8") as f: f.write(barcode + "\n")
-            pfx, tag = ("[批]", "batch_text") if is_batch else ("[OK]", None)
-            self.log_text.insert("1.0", f"{pfx} {barcode}\n", tag)
+            pfx, tag = ("[批]", "bat_txt") if is_batch else ("[OK]", None)
+            self.log_text.insert("1.0", f"{pfx} {barcode}\n", ("curr_txt", tag))
             self.info_lbl.config(text=f"Cnt: {len(BARCODE_HISTORY)}")
         self.log_text.see("1.0")
 
@@ -140,18 +150,12 @@ class UltimateMiniGuard:
         except: pass
 
     def open_sub_win(self):
-        self.sub_win = tk.Toplevel(self.root)
-        self.sub_win.title("录入器")
-        self.sub_win.geometry("240x320")
-        self.sub_win.attributes("-topmost", True)
-        btn_f = tk.Frame(self.sub_win, bg="#f0f0f0")
-        btn_f.pack(fill=tk.X, pady=1)
-        tk.Button(btn_f, text="1. 读取剪贴板", command=self.load_from_clipboard, bg="#B3E5FC", font=("微软雅黑", 8)).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-        tk.Button(btn_f, text="清", command=self.clear_sub_list, bg="#FFCCBC", font=("微软雅黑", 8, "bold"), width=4).pack(side=tk.RIGHT, padx=1)
-        self.listbox = tk.Listbox(self.sub_win, font=("Consolas", 9), bd=1)
-        self.listbox.pack(fill=tk.BOTH, expand=True)
-        self.run_btn = tk.Button(self.sub_win, text="2. 执行录入", bg="#C8E6C9", font=("微软雅黑", 9, "bold"), command=self.confirm_and_run)
-        self.run_btn.pack(fill=tk.X)
+        self.sub_win = tk.Toplevel(self.root); self.sub_win.title("录入器"); self.sub_win.geometry("240x320"); self.sub_win.attributes("-topmost", True)
+        f = tk.Frame(self.sub_win, bg="#f0f0f0"); f.pack(fill=tk.X, pady=1)
+        tk.Button(f, text="1. 读取剪贴板", command=self.load_from_clipboard, bg="#B3E5FC", font=("微软雅黑", 8)).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
+        tk.Button(f, text="清", command=self.clear_sub_list, bg="#FFCCBC", font=("微软雅黑", 8, "bold"), width=4).pack(side=tk.RIGHT, padx=1)
+        self.listbox = tk.Listbox(self.sub_win, font=("Consolas", 9), bd=1); self.listbox.pack(fill=tk.BOTH, expand=True)
+        self.run_btn = tk.Button(self.sub_win, text="2. 执行录入", bg="#C8E6C9", font=("微软雅黑", 9, "bold"), command=self.confirm_and_run); self.run_btn.pack(fill=tk.X)
         self.update_sub_ui()
 
     def load_from_clipboard(self):
@@ -167,14 +171,14 @@ class UltimateMiniGuard:
         if not hasattr(self, 'listbox'): return
         self.listbox.delete(0, tk.END)
         for sn in self.current_sns: self.listbox.insert(tk.END, sn)
-        self.run_btn.config(text=f"2. 执行录入 ({len(self.current_sns)}条)" if self.current_sns else "2. 执行录入 (空)", state=tk.NORMAL if self.current_sns else tk.DISABLED)
+        st, tx = (tk.NORMAL, f"2. 执行录入 ({len(self.current_sns)}条)") if self.current_sns else (tk.DISABLED, "2. 执行录入 (空)")
+        self.run_btn.config(text=tx, state=st)
 
     def confirm_and_run(self):
         if not self.current_sns: return
-        sns_to_send = list(self.current_sns)
-        self.sub_win.destroy()
+        sns = list(self.current_sns); self.sub_win.destroy()
         self.root.attributes("-alpha", self.work_alpha)
-        threading.Thread(target=self._auto_core, args=(sns_to_send,), daemon=True).start()
+        threading.Thread(target=self._auto_core, args=(sns,), daemon=True).start()
 
     def _auto_core(self, sns):
         time.sleep(3) 
@@ -183,8 +187,7 @@ class UltimateMiniGuard:
             kb_controller.type(sn); time.sleep(e_del)
             kb_controller.press(Key.enter); kb_controller.release(Key.enter)
             if self.use_double_enter.get(): 
-                time.sleep(0.05)
-                kb_controller.press(Key.enter); kb_controller.release(Key.enter)
+                time.sleep(0.05); kb_controller.press(Key.enter); kb_controller.release(Key.enter)
             self.root.after(0, lambda s=sn: self.handle_scan(s, is_batch=True))
             time.sleep(m_del)
         self.root.after(0, lambda: self.root.attributes("-alpha", self.normal_alpha))
