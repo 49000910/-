@@ -1,8 +1,9 @@
 import time, threading, winsound, os
 import tkinter as tk
 from tkinter import messagebox
-from pynput import keyboard
+from pynput import keyboard, mouse
 from pynput.keyboard import Controller, Key
+from pynput.mouse import Controller as MouseController
 
 # --- 核心配置 ---
 HISTORY_FILE = "barcode_history.txt"
@@ -11,6 +12,7 @@ SCAN_BUFFER = []
 LAST_KEY_TIME = 0
 SCAN_SPEED_THRESHOLD = 0.05 
 kb_controller = Controller()
+ms_controller = MouseController()
 
 def load_history():
     BARCODE_HISTORY.clear()
@@ -33,15 +35,14 @@ class UltimateMiniGuard:
         self.root.overrideredirect(True) 
 
         self.current_sns = [] 
+        self.session_sns = [] 
         
-        # --- 配色方案 ---
         self.themes = {
             "def": {"bg": "#ECEFF1", "head": "#CFD8DC", "title": "#90A4AE", "txt_bg": "#FFFFFF", "title_fg": "#37474F"},
             "ok":  {"bg": "#A5D6A7", "head": "#A5D6A7", "title": "#66BB6A", "txt_bg": "#E8F5E9", "title_fg": "#1B5E20"},
             "dup": {"bg": "#EF9A9A", "head": "#EF9A9A", "title": "#E57373", "txt_bg": "#FFEBEE", "title_fg": "#FFFFFF"}
         }
         
-        # --- UI 构建 ---
         self.title_bar = tk.Frame(self.root, height=22)
         self.title_bar.pack(fill=tk.X)
         self.title_lbl = tk.Label(self.title_bar, text=" 采集助手", font=("微软雅黑", 8, "bold"))
@@ -56,10 +57,9 @@ class UltimateMiniGuard:
         self.params_f.pack(fill=tk.X)
         spin_opt = {"font": ("Consolas", 8), "width": 3, "from_": 0.0, "to": 5.0, "increment": 0.05}
         
-        self.pb_var = tk.BooleanVar(value=True) # PB默认开启
+        self.pb_var = tk.BooleanVar(value=True)
         self.cb_pb = tk.Checkbutton(self.params_f, text="PB", variable=self.pb_var, font=("微软雅黑", 8))
         self.cb_pb.pack(side=tk.LEFT)
-        
         self.r2_var = tk.BooleanVar(value=False)
         self.cb_r2 = tk.Checkbutton(self.params_f, text="回2", variable=self.r2_var, font=("微软雅黑", 8))
         self.cb_r2.pack(side=tk.LEFT)
@@ -79,10 +79,10 @@ class UltimateMiniGuard:
 
         self.log_text = tk.Text(self.root, font=("Consolas", 8), height=7, bd=0, padx=5)
         self.log_text.pack(fill=tk.BOTH, expand=True, padx=2, pady=1)
-        
         self.log_text.tag_config("curr_txt", font=("Consolas", 10, "bold")) 
         self.log_text.tag_config("dup_txt", foreground="#C62828")
         self.log_text.tag_config("bat_txt", foreground="#1B5E20")
+        self.log_text.tag_config("sys_txt", foreground="#E65100", font=("Consolas", 8, "bold"))
 
         self.info_lbl = tk.Label(self.root, text=f"Cnt: {len(BARCODE_HISTORY)}", font=("Arial", 7))
         self.info_lbl.pack(side=tk.RIGHT, padx=2)
@@ -112,23 +112,30 @@ class UltimateMiniGuard:
 
     def handle_scan(self, barcode, is_batch=False):
         self.log_text.tag_remove("curr_txt", "1.0", tk.END)
-        if barcode in BARCODE_HISTORY:
-            if not is_batch: 
+        
+        if is_batch:
+            # --- 批量录入模式：不参加变色，不参加拦截 ---
+            if barcode not in BARCODE_HISTORY:
+                BARCODE_HISTORY.add(barcode)
+                with open(HISTORY_FILE, "a", encoding="utf-8") as f: f.write(barcode + "\n")
+            self.session_sns.append(barcode)
+            # 仅在 Log 显示，不改变 set_theme_color
+            self.log_text.insert("1.0", f"[批] {barcode}\n", ("curr_txt", "bat_txt"))
+            self.info_lbl.config(text=f"Cnt: {len(BARCODE_HISTORY)}")
+        else:
+            # --- 手动扫码模式：保留变色和拦截 ---
+            if barcode in BARCODE_HISTORY:
                 winsound.Beep(1000, 300); self.set_theme_color("dup")
                 self.log_text.insert("1.0", f"[重] {barcode}\n", ("curr_txt", "dup_txt"))
                 if self.pb_var.get():
-                    with kb_controller.pressed(Key.shift):
-                        kb_controller.press(Key.tab); kb_controller.release(Key.tab)
-                    time.sleep(0.01)
-                    with kb_controller.pressed(Key.ctrl):
-                        kb_controller.press('a'); kb_controller.release('a')
-        else:
-            self.set_theme_color("ok")
-            BARCODE_HISTORY.add(barcode)
-            with open(HISTORY_FILE, "a", encoding="utf-8") as f: f.write(barcode + "\n")
-            pfx, tag = ("[批]", "bat_txt") if is_batch else ("[OK]", None)
-            self.log_text.insert("1.0", f"{pfx} {barcode}\n", ("curr_txt", tag))
-            self.info_lbl.config(text=f"Cnt: {len(BARCODE_HISTORY)}")
+                    with kb_controller.pressed(Key.shift): kb_controller.press(Key.tab); kb_controller.release(Key.tab)
+                    time.sleep(0.01); with kb_controller.pressed(Key.ctrl): kb_controller.press('a'); kb_controller.release('a')
+            else:
+                self.set_theme_color("ok")
+                BARCODE_HISTORY.add(barcode)
+                with open(HISTORY_FILE, "a", encoding="utf-8") as f: f.write(barcode + "\n")
+                self.log_text.insert("1.0", f"[OK] {barcode}\n", "curr_txt")
+                self.info_lbl.config(text=f"Cnt: {len(BARCODE_HISTORY)}")
         self.log_text.see("1.0")
 
     def on_press(self, key):
@@ -151,14 +158,14 @@ class UltimateMiniGuard:
         tk.Button(f, text="1. 读取剪贴板", command=self.load_from_clipboard, bg="#B3E5FC", font=("微软雅黑", 8)).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
         tk.Button(f, text="清", command=self.clear_sub_list, bg="#FFCCBC", font=("微软雅黑", 8, "bold"), width=4).pack(side=tk.RIGHT, padx=1)
         self.listbox = tk.Listbox(self.sub_win, font=("Consolas", 9), bd=1); self.listbox.pack(fill=tk.BOTH, expand=True)
-        self.run_btn = tk.Button(self.sub_win, text="2. 执行录入", bg="#C8E6C9", font=("微软雅黑", 9, "bold"), command=self.confirm_and_run)
-        self.run_btn.pack(fill=tk.X)
+        self.run_btn = tk.Button(self.sub_win, text="2. 执行录入", bg="#C8E6C9", font=("微软雅黑", 9, "bold"), command=self.confirm_and_run); self.run_btn.pack(fill=tk.X)
         self.update_sub_ui()
 
     def load_from_clipboard(self):
         try:
             raw = self.root.clipboard_get()
-            self.current_sns = sorted(list(set([s.strip() for s in str(raw).split('\n') if s.strip()])))
+            lines = list(set([s.strip() for s in str(raw).split('\n') if s.strip()]))
+            self.current_sns = sorted(lines) 
             self.update_sub_ui()
         except: messagebox.showwarning("提示", "剪贴板为空")
 
@@ -173,27 +180,46 @@ class UltimateMiniGuard:
 
     def confirm_and_run(self):
         if not self.current_sns: return
-        # 在主线程提前读取参数值，防止子线程读取失败
         try:
-            e_del = float(self.spin_e1.get())
-            m_del = float(self.spin_mid.get())
-            r2_val = self.r2_var.get()
+            e_del, m_del, r2_val = float(self.spin_e1.get()), float(self.spin_mid.get()), self.r2_var.get()
         except: e_del, m_del, r2_val = 0.01, 0.85, False
-        
         sns = list(self.current_sns); self.sub_win.destroy()
         self.root.attributes("-alpha", self.work_alpha)
+        self.session_sns = [] 
         threading.Thread(target=self._auto_core, args=(sns, e_del, m_del, r2_val), daemon=True).start()
 
     def _auto_core(self, sns, e_del, m_del, r2_val):
         time.sleep(3) 
+        last_pos = ms_controller.position
+        interrupted = False
         for sn in sns:
+            curr_pos = ms_controller.position
+            if abs(curr_pos[0]-last_pos[0]) > 50 or abs(curr_pos[1]-last_pos[1]) > 50:
+                interrupted = True; break
+            last_pos = curr_pos
+
             kb_controller.type(sn); time.sleep(e_del)
             kb_controller.press(Key.enter); kb_controller.release(Key.enter)
             if r2_val: 
                 time.sleep(0.05); kb_controller.press(Key.enter); kb_controller.release(Key.enter)
             self.root.after(0, lambda s=sn: self.handle_scan(s, is_batch=True))
             time.sleep(m_del)
+            
         self.root.after(0, lambda: self.root.attributes("-alpha", self.normal_alpha))
+        if interrupted: self.root.after(0, self.ask_rollback)
+        else: winsound.Beep(800, 200)
+
+    def ask_rollback(self):
+        msg = f"已中断！本次录入 {len(self.session_sns)} 条。\n是否从历史中删除这些记录？"
+        if messagebox.askyesno("中断处理", msg):
+            for sn in self.session_sns:
+                if sn in BARCODE_HISTORY: BARCODE_HISTORY.remove(sn)
+            with open(HISTORY_FILE, "w", encoding="utf-8") as f:
+                for sn in BARCODE_HISTORY: f.write(sn + "\n")
+            self.log_text.insert("1.0", f"[系统] 已回滚 {len(self.session_sns)} 条\n", "sys_txt")
+            self.info_lbl.config(text=f"Cnt: {len(BARCODE_HISTORY)}")
+            self.set_theme_color("def")
+        self.session_sns = []
 
 if __name__ == "__main__":
     root = tk.Tk(); app = UltimateMiniGuard(root); root.mainloop()
