@@ -1,11 +1,12 @@
 import time, threading, winsound, os
 import tkinter as tk
 from tkinter import messagebox, ttk
+import pygetwindow as gw
 from pynput import keyboard, mouse
 from pynput.keyboard import Controller, Key
 from pynput.mouse import Controller as MouseController, Listener as MouseListener
 
-# --- 核心数据配置 ---
+# --- 核心配置 ---
 HISTORY_FILE = "barcode_history.txt"
 BARCODE_HISTORY = set()
 SCAN_BUFFER = []
@@ -47,7 +48,7 @@ class UltimateMiniGuard:
         # --- UI 构建 ---
         self.title_bar = tk.Frame(self.root, height=25)
         self.title_bar.pack(fill=tk.X)
-        self.title_lbl = tk.Label(self.title_bar, text=" 🛡️ 采集助手 V5.6", font=("微软雅黑", 9, "bold"))
+        self.title_lbl = tk.Label(self.title_bar, text=" 🛡️ 谷歌采集助手 V5.7", font=("微软雅黑", 9, "bold"))
         self.title_lbl.pack(side=tk.LEFT)
         tk.Button(self.title_bar, text="✕", command=root.quit, bg="#FF7043", fg="white", font=("Arial", 8, "bold"), bd=0, padx=8).pack(side=tk.RIGHT)
 
@@ -98,7 +99,6 @@ class UltimateMiniGuard:
 
         self.set_theme_color("def")
         
-        # 核心监听
         keyboard.Listener(on_press=self.on_press).start()
         mouse.Listener(on_click=self.on_click).start()
 
@@ -125,14 +125,105 @@ class UltimateMiniGuard:
     def do_move(self, e):
         self.root.geometry(f"+{self.root.winfo_x()+(e.x-self.x)}+{self.root.winfo_y()+(e.y-self.y)}")
 
-    # --- 执行逻辑 ---
+    # --- 核心扫码逻辑 (含 Chrome 锁定) ---
+    def handle_scan(self, barcode, is_batch=False):
+        if not is_batch:
+            try:
+                active_win = gw.getActiveWindow()
+                active_title = active_win.title if active_win else ""
+                # 仅在 Chrome 窗口生效，其他窗口静默跳过
+                if "Google Chrome" not in active_title:
+                    return 
+            except:
+                pass
+
+        self.log_text.tag_remove("curr_txt", "1.0", tk.END)
+        if is_batch:
+            if barcode not in BARCODE_HISTORY:
+                BARCODE_HISTORY.add(barcode)
+                self.batch_added.append(barcode)
+                with open(HISTORY_FILE, "a", encoding="utf-8") as f:
+                    f.write(barcode + "\n")
+            self.log_text.insert("1.0", f"● {barcode}\n", ("curr_txt", "bat_txt"))
+        else:
+            if barcode in BARCODE_HISTORY:
+                winsound.Beep(1000, 400)
+                self.set_theme_color("dup")
+                self.log_text.insert("1.0", f"❌ {barcode}\n", ("curr_txt", "dup_txt"))
+                if self.pb_var.get():
+                    with kb.pressed(Key.shift):
+                        kb.tap(Key.tab)
+                    time.sleep(0.02)
+                    with kb.pressed(Key.ctrl):
+                        kb.tap('a')
+            else:
+                self.set_theme_color("ok")
+                BARCODE_HISTORY.add(barcode)
+                with open(HISTORY_FILE, "a", encoding="utf-8") as f:
+                    f.write(barcode + "\n")
+                self.log_text.insert("1.0", f"✔ {barcode}\n", "curr_txt")
+        
+        self.info_lbl.config(text=f"Total: {len(BARCODE_HISTORY)}")
+        self.log_text.see("1.0")
+
+    def on_press(self, key):
+        global LAST_KEY_TIME, SCAN_BUFFER
+        now = time.time()
+        interval = now - LAST_KEY_TIME
+        LAST_KEY_TIME = now
+        try:
+            c = key.char if hasattr(key, 'char') and key.char else ('\n' if key == Key.enter else None)
+            if not c: return
+            if interval < SCAN_SPEED_THRESHOLD:
+                if c == '\n':
+                    bc = "".join(SCAN_BUFFER).strip()
+                    SCAN_BUFFER = []
+                    if bc:
+                        self.root.after(0, self.handle_scan, bc)
+                else:
+                    SCAN_BUFFER.append(c)
+            else:
+                SCAN_BUFFER = [c] if c != '\n' else []
+        except:
+            pass
+
+    # --- 批量录入相关 ---
+    def open_sub_win(self):
+        if self.sub and self.sub.winfo_exists(): return
+        self.sub = tk.Toplevel(self.root)
+        self.sub.overrideredirect(True)
+        self.sub.geometry("240x350")
+        self.sub.attributes("-topmost", True, "-alpha", 0.98)
+        self.sub.configure(bg="#F5F7F9")
+        
+        sub_t = tk.Frame(self.sub, bg="#455A64", height=25)
+        sub_t.pack(fill=tk.X)
+        tk.Label(sub_t, text=" 任务任务库", fg="white", bg="#455A64", font=("微软雅黑", 8, "bold")).pack(side=tk.LEFT)
+        tk.Button(sub_t, text="✕", command=self.sub.destroy, bg="#455A64", fg="#CFD8DC", bd=0, padx=8).pack(side=tk.RIGHT)
+        
+        sub_t.bind("<Button-1>", lambda e: setattr(self, 'sx', e.x) or setattr(self, 'sy', e.y))
+        sub_t.bind("<B1-Motion>", lambda e: self.sub.geometry(f"+{self.sub.winfo_x()+(e.x-self.sx)}+{self.sub.winfo_y()+(e.y-self.sy)}"))
+        
+        btn_f = tk.Frame(self.sub, bg="#F5F7F9", pady=5)
+        btn_f.pack(fill=tk.X, padx=5)
+        tk.Button(btn_f, text="📋 粘贴排序", command=self.clip_load, bg="#E1F5FE", font=("微软雅黑", 8), bd=0).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        tk.Button(btn_f, text="🚀 开始执行", command=self.start_batch, bg="#E8F5E9", font=("微软雅黑", 8, "bold"), bd=0).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
+        
+        lf = tk.Frame(self.sub, bg="white", bd=1, relief=tk.SOLID)
+        lf.pack(fill=tk.BOTH, expand=True, padx=8, pady=5)
+        self.listb = tk.Listbox(lf, font=("Consolas", 10), bd=0, highlightthickness=0)
+        self.listb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb = tk.Scrollbar(lf, width=8, command=self.listb.yview)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        self.listb.config(yscrollcommand=sb.set)
+        self.listb.bind("<Double-Button-1>", lambda e: self.listb.delete(self.listb.curselection()))
+
     def start_batch(self):
         codes = self.listb.get(0, tk.END)
         if not codes or self.is_running_batch: return
         if self.sub:
             self.sub.destroy()
             self.sub = None
-        
         self.is_running_batch = True
         self.stop_batch = False
         self.batch_added = []
@@ -140,7 +231,6 @@ class UltimateMiniGuard:
         self.p_bar.pack(fill=tk.X, padx=2, before=self.log_text)
         self.p_bar['maximum'] = len(codes)
         self.p_bar['value'] = 0
-        
         threading.Thread(target=self.prepare_and_run, args=(codes,), daemon=True).start()
 
     def prepare_and_run(self, codes):
@@ -178,17 +268,11 @@ class UltimateMiniGuard:
         self.p_bar['value'] = val
         self.handle_scan(code, True)
 
-    def abort_mission(self):
-        self.log_text.insert("1.0", "🚫 任务已中止 (双击触发)\n", "dup_txt")
-        self.is_running_batch = False
-        self.p_bar.pack_forget()
-        self.root.attributes("-alpha", 0.96)
-
     def finalize_batch(self):
         self.root.attributes("-alpha", 0.96)
         self.p_bar.pack_forget()
         if self.stop_batch:
-            if messagebox.askyesno("止付成功", "已双击切断。是否回退已录入的数据？"):
+            if messagebox.askyesno("止付成功", "已切断。是否回滚？"):
                 for c in self.batch_added:
                     if c in BARCODE_HISTORY:
                         BARCODE_HISTORY.remove(c)
@@ -200,36 +284,11 @@ class UltimateMiniGuard:
             winsound.Beep(1200, 200)
             messagebox.showinfo("完成", "录入任务结束")
 
-    # --- 基础库 ---
-    def open_sub_win(self):
-        if self.sub and self.sub.winfo_exists(): return
-        self.sub = tk.Toplevel(self.root)
-        self.sub.overrideredirect(True)
-        self.sub.geometry("240x350")
-        self.sub.attributes("-topmost", True, "-alpha", 0.98)
-        self.sub.configure(bg="#F5F7F9")
-        
-        sub_t = tk.Frame(self.sub, bg="#455A64", height=25)
-        sub_t.pack(fill=tk.X)
-        tk.Label(sub_t, text=" 批量库 (双击删除单项)", fg="white", bg="#455A64", font=("微软雅黑", 8, "bold")).pack(side=tk.LEFT)
-        tk.Button(sub_t, text="✕", command=self.sub.destroy, bg="#455A64", fg="#CFD8DC", bd=0, padx=8).pack(side=tk.RIGHT)
-        
-        sub_t.bind("<Button-1>", lambda e: setattr(self, 'sx', e.x) or setattr(self, 'sy', e.y))
-        sub_t.bind("<B1-Motion>", lambda e: self.sub.geometry(f"+{self.sub.winfo_x()+(e.x-self.sx)}+{self.sub.winfo_y()+(e.y-self.sy)}"))
-        
-        btn_f = tk.Frame(self.sub, bg="#F5F7F9", pady=5)
-        btn_f.pack(fill=tk.X, padx=5)
-        tk.Button(btn_f, text="📋 粘贴排序", command=self.clip_load, bg="#E1F5FE", font=("微软雅黑", 8), bd=0).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-        tk.Button(btn_f, text="🚀 开始执行", command=self.start_batch, bg="#E8F5E9", font=("微软雅黑", 8, "bold"), bd=0).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=2)
-        
-        lf = tk.Frame(self.sub, bg="white", bd=1, relief=tk.SOLID)
-        lf.pack(fill=tk.BOTH, expand=True, padx=8, pady=5)
-        self.listb = tk.Listbox(lf, font=("Consolas", 10), bd=0, highlightthickness=0)
-        self.listb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        sb = tk.Scrollbar(lf, width=8, command=self.listb.yview)
-        sb.pack(side=tk.RIGHT, fill=tk.Y)
-        self.listb.config(yscrollcommand=sb.set)
-        self.listb.bind("<Double-Button-1>", lambda e: self.listb.delete(self.listb.curselection()))
+    def abort_mission(self):
+        self.log_text.insert("1.0", "🚫 任务已取消\n", "dup_txt")
+        self.is_running_batch = False
+        self.p_bar.pack_forget()
+        self.root.attributes("-alpha", 0.96)
 
     def clip_load(self):
         try:
@@ -241,64 +300,13 @@ class UltimateMiniGuard:
         except:
             pass
 
-    def handle_scan(self, barcode, is_batch=False):
-        self.log_text.tag_remove("curr_txt", "1.0", tk.END)
-        if is_batch:
-            if barcode not in BARCODE_HISTORY:
-                BARCODE_HISTORY.add(barcode)
-                self.batch_added.append(barcode)
-                with open(HISTORY_FILE, "a", encoding="utf-8") as f:
-                    f.write(barcode + "\n")
-            self.log_text.insert("1.0", f"● {barcode}\n", ("curr_txt", "bat_txt"))
-        else:
-            if barcode in BARCODE_HISTORY:
-                winsound.Beep(1000, 400)
-                self.set_theme_color("dup")
-                self.log_text.insert("1.0", f"❌ {barcode}\n", ("curr_txt", "dup_txt"))
-                if self.pb_var.get():
-                    with kb.pressed(Key.shift):
-                        kb.tap(Key.tab)
-                    # 关键修复点：分行书写
-                    time.sleep(0.02)
-                    with kb.pressed(Key.ctrl):
-                        kb.tap('a')
-            else:
-                self.set_theme_color("ok")
-                BARCODE_HISTORY.add(barcode)
-                with open(HISTORY_FILE, "a", encoding="utf-8") as f:
-                    f.write(barcode + "\n")
-                self.log_text.insert("1.0", f"✔ {barcode}\n", "curr_txt")
-        self.info_lbl.config(text=f"Total: {len(BARCODE_HISTORY)}")
-        self.log_text.see("1.0")
-
-    def on_press(self, key):
-        global LAST_KEY_TIME, SCAN_BUFFER
-        now = time.time()
-        interval = now - LAST_KEY_TIME
-        LAST_KEY_TIME = now
-        try:
-            c = key.char if hasattr(key, 'char') and key.char else ('\n' if key == Key.enter else None)
-            if not c: return
-            if interval < SCAN_SPEED_THRESHOLD:
-                if c == '\n':
-                    bc = "".join(SCAN_BUFFER).strip()
-                    SCAN_BUFFER = []
-                    if bc:
-                        self.root.after(0, self.handle_scan, bc)
-                else:
-                    SCAN_BUFFER.append(c)
-            else:
-                SCAN_BUFFER = [c] if c != '\n' else []
-        except:
-            pass
-
     def clear_history(self):
-        if messagebox.askyesno("确认", "清空？"):
+        if messagebox.askyesno("确认", "清空历史？"):
             BARCODE_HISTORY.clear()
             self.log_text.delete("1.0", tk.END)
-            self.info_lbl.config(text="Total: 0")
             if os.path.exists(HISTORY_FILE):
                 os.remove(HISTORY_FILE)
+            self.info_lbl.config(text="Total: 0")
 
 if __name__ == "__main__":
     root = tk.Tk()
