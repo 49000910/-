@@ -66,15 +66,11 @@ class UltimateMiniGuard:
         
         tk.Label(self.params_f, text="E:", font=("微软雅黑", 8)).pack(side=tk.LEFT)
         self.spin_e1 = tk.Spinbox(self.params_f, **spin_opt)
-        self.spin_e1.delete(0, "end")
-        self.spin_e1.insert(0, "0.01")
-        self.spin_e1.pack(side=tk.LEFT)
+        self.spin_e1.delete(0, "end"); self.spin_e1.insert(0, "0.01"); self.spin_e1.pack(side=tk.LEFT)
 
         tk.Label(self.params_f, text="待:", font=("微软雅黑", 8)).pack(side=tk.LEFT)
         self.spin_mid = tk.Spinbox(self.params_f, **spin_opt)
-        self.spin_mid.delete(0, "end")
-        self.spin_mid.insert(0, "0.85")
-        self.spin_mid.pack(side=tk.LEFT)
+        self.spin_mid.delete(0, "end"); self.spin_mid.insert(0, "0.85"); self.spin_mid.pack(side=tk.LEFT)
         
         self.ctrl_f = tk.Frame(self.root, pady=1)
         self.ctrl_f.pack(fill=tk.X)
@@ -92,13 +88,9 @@ class UltimateMiniGuard:
         self.info_lbl.pack(side=tk.RIGHT, padx=2)
 
         self.set_theme_color("def")
-        self.listener = keyboard.Listener(on_press=self.on_press)
-        self.listener.start()
+        self.listener = keyboard.Listener(on_press=self.on_press); self.listener.start()
 
-    def start_move(self, event): 
-        self.x = event.x
-        self.y = event.y
-
+    def start_move(self, event): self.x = event.x; self.y = event.y
     def do_move(self, event):
         self.root.geometry(f"+{self.root.winfo_x()+(event.x-self.x)}+{self.root.winfo_y()+(event.y-self.y)}")
 
@@ -115,27 +107,22 @@ class UltimateMiniGuard:
         if messagebox.askyesno("确认", "清空所有采集历史？"):
             BARCODE_HISTORY.clear()
             if os.path.exists(HISTORY_FILE): os.remove(HISTORY_FILE)
-            self.set_theme_color("def")
-            self.log_text.delete("1.0", tk.END)
+            self.set_theme_color("def"); self.log_text.delete("1.0", tk.END)
             self.info_lbl.config(text="Cnt: 0")
 
     def handle_scan(self, barcode, is_batch=False):
         self.log_text.tag_remove("curr_txt", "1.0", tk.END)
-        
         if is_batch:
             if barcode not in BARCODE_HISTORY:
                 BARCODE_HISTORY.add(barcode)
                 with open(HISTORY_FILE, "a", encoding="utf-8") as f: f.write(barcode + "\n")
-            self.session_sns.append(barcode)
             self.log_text.insert("1.0", f"[批] {barcode}\n", ("curr_txt", "bat_txt"))
             self.info_lbl.config(text=f"Cnt: {len(BARCODE_HISTORY)}")
         else:
             if barcode in BARCODE_HISTORY:
-                winsound.Beep(1000, 300)
-                self.set_theme_color("dup")
+                winsound.Beep(1000, 300); self.set_theme_color("dup")
                 self.log_text.insert("1.0", f"[重] {barcode}\n", ("curr_txt", "dup_txt"))
                 if self.pb_var.get():
-                    # 修复后的模拟按键逻辑
                     with kb_controller.pressed(Key.shift):
                         kb_controller.press(Key.tab)
                         kb_controller.release(Key.tab)
@@ -153,33 +140,71 @@ class UltimateMiniGuard:
 
     def on_press(self, key):
         global LAST_KEY_TIME, SCAN_BUFFER
-        now = time.time()
-        interval = now - LAST_KEY_TIME
-        LAST_KEY_TIME = now
+        now = time.time(); interval = now - LAST_KEY_TIME; LAST_KEY_TIME = now
         try:
             char = key.char if hasattr(key, 'char') and key.char else ('\n' if key == Key.enter else None)
             if not char: return
             if interval < SCAN_SPEED_THRESHOLD:
                 if char == '\n':
-                    bc = "".join(SCAN_BUFFER).strip()
-                    SCAN_BUFFER = []
+                    bc = "".join(SCAN_BUFFER).strip(); SCAN_BUFFER = []
                     if bc: self.root.after(0, self.handle_scan, bc)
                 else: SCAN_BUFFER.append(char)
             else: SCAN_BUFFER = [char] if char != '\n' else []
         except: pass
 
+    # --- 批量录入相关逻辑 ---
     def open_sub_win(self):
-        # 补全了基本的窗口定义
         self.sub_win = tk.Toplevel(self.root)
-        self.sub_win.title("录入器")
+        self.sub_win.title("批量录入")
         self.sub_win.geometry("240x320")
         self.sub_win.attributes("-topmost", True)
+        
         f = tk.Frame(self.sub_win, bg="#f0f0f0")
         f.pack(fill=tk.X, pady=1)
-        tk.Button(f, text="1. 读取剪贴板", command=lambda: print("Load Clicked"), bg="#B3E5FC", font=("微软雅黑", 8)).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
-        tk.Button(f, text="清", command=lambda: self.listbox.delete(0, tk.END), bg="#FFCCBC", font=("微软雅黑", 8, "bold"), width=4).pack(side=tk.RIGHT, padx=1)
+        tk.Button(f, text="1. 读取剪贴板", command=self.load_from_clipboard, bg="#B3E5FC", font=("微软雅黑", 8)).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
+        tk.Button(f, text="2. 执行录入", command=self.start_batch_input, bg="#C8E6C9", font=("微软雅黑", 8, "bold")).pack(side=tk.LEFT, expand=True, fill=tk.X, padx=1)
+        tk.Button(f, text="清", command=self.clear_sub_list, bg="#FFCCBC", font=("微软雅黑", 8), width=4).pack(side=tk.RIGHT, padx=1)
+        
         self.listbox = tk.Listbox(self.sub_win, font=("Consolas", 9), bd=1)
         self.listbox.pack(fill=tk.BOTH, expand=True)
+
+    def load_from_clipboard(self):
+        try:
+            data = self.root.clipboard_get()
+            lines = [line.strip() for line in data.split('\n') if line.strip()]
+            self.listbox.delete(0, tk.END)
+            for line in lines: self.listbox.insert(tk.END, line)
+        except: messagebox.showwarning("提示", "剪贴板无文本内容")
+
+    def clear_sub_list(self): self.listbox.delete(0, tk.END)
+
+    def start_batch_input(self):
+        items = self.listbox.get(0, tk.END)
+        if not items: return
+        self.root.attributes("-alpha", self.work_alpha) # 变淡表示工作中
+        threading.Thread(target=self.batch_worker, args=(items,), daemon=True).start()
+
+    def batch_worker(self, items):
+        e1 = float(self.spin_e1.get())
+        mid = float(self.spin_mid.get())
+        for code in items:
+            # 模拟手动输入
+            kb_controller.type(code)
+            time.sleep(e1)
+            kb_controller.press(Key.enter); kb_controller.release(Key.enter)
+            
+            # 更新主界面UI
+            self.root.after(0, self.handle_scan, code, True)
+            
+            # 模拟"回2"逻辑
+            if self.r2_var.get():
+                time.sleep(0.05)
+                kb_controller.press(Key.enter); kb_controller.release(Key.enter)
+            
+            time.sleep(mid) # 待机等待
+        
+        self.root.after(0, lambda: self.root.attributes("-alpha", self.normal_alpha))
+        messagebox.showinfo("完成", f"批量录入结束，共计 {len(items)} 条")
 
 if __name__ == "__main__":
     root = tk.Tk()
